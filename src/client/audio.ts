@@ -259,6 +259,19 @@ export class Audio {
     this.tone(dest, t, big ? 1.5 : 0.7, 90, 25, 1);
   }
 
+  hiss(pos: Vec3 | null): void {
+    const dest = this.out(pos, 0.5, 300);
+    if (!dest) return;
+    this.noiseBurst(dest, this.ctx!.currentTime, 2.5, 'highpass', 2500, 0.5, 0.6, 0.05);
+  }
+
+  /** The post-flash ear ring. */
+  ring(strength: number): void {
+    const dest = this.out(null, 0.25 * strength);
+    if (!dest) return;
+    this.tone(dest, this.ctx!.currentTime, 2.5 * strength + 0.5, 3200, 3100, 0.4, 'sine');
+  }
+
   ui(freq = 900): void {
     const dest = this.out(null, 0.2);
     if (!dest) return;

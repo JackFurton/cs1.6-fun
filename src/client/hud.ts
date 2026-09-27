@@ -27,6 +27,7 @@ export class Hud {
   private centerMsg: HTMLDivElement;
   private scope: HTMLDivElement;
   private damageFlash: HTMLDivElement;
+  private flashbang: HTMLDivElement;
   private dmgDirs: Record<'l' | 'r' | 't' | 'b', HTMLDivElement>;
   private roundScore: HTMLDivElement;
   private roundTimer: HTMLDivElement;
@@ -49,6 +50,7 @@ export class Hud {
     this.el.innerHTML = `
       <div class="scope"><div class="scope-ring"></div><i class="h"></i><i class="v"></i></div>
       <div class="damage-flash"></div>
+      <div class="flashbang"></div>
       <div class="dmgdir l"></div><div class="dmgdir r"></div><div class="dmgdir t"></div><div class="dmgdir b"></div>
       <div class="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
       <div class="fps"></div>
@@ -82,6 +84,7 @@ export class Hud {
     this.centerMsg = q('.center-msg');
     this.scope = q('.scope');
     this.damageFlash = q('.damage-flash');
+    this.flashbang = q('.flashbang');
     this.roundScore = q('.round-score');
     this.roundTimer = q('.round-timer');
     this.progress = q('.progress');
@@ -123,6 +126,13 @@ export class Hud {
     c.style.display = c4 === 'none' ? 'none' : 'inline-block';
     c.classList.toggle('site', c4 === 'site');
     (this.icons.querySelector('.ic-kit') as HTMLElement).style.display = kit ? 'inline-block' : 'none';
+  }
+
+  /** White-out from a flashbang: solid until the last 1.5 seconds, then fading. */
+  setFlash(p: Player, time: number): void {
+    const left = p.flashUntil - time;
+    const a = left <= 0 ? 0 : Math.min(1, left / 1.5) * p.flashStrength;
+    this.flashbang.style.opacity = String(Math.min(1, a * 1.1));
   }
 
   setSpectating(text: string | null): void {

@@ -1,6 +1,7 @@
 import { Trace } from '../engine/trace';
 import { DEG, Vec3, angleDiff, angleVectors, pitchTo, yawTo } from '../engine/vec';
 import { HULL_STAND } from '../engine/pmove';
+import { solveThrow, type GrenadeId } from '../game/grenades';
 import type { Player } from '../game/player';
 import type { BotManager } from './manager';
 import type { NavNode } from './nav';
@@ -70,6 +71,11 @@ export class Bot {
   private lookJitter = 0;
   private lookJitterAt = 0;
   private wantReloadAt = 0;
+  /** A grenade being lined up: switch to it, aim, pull, release. */
+  private nade: { id: GrenadeId; yaw: number; pitch: number; stage: 'switch' | 'aim' | 'pull'; until: number } | null = null;
+  private nadeCooldown = 0;
+  private usedFlash = false;
+  private usedSmoke = false;
 
   constructor(
     readonly p: Player,
@@ -87,6 +93,9 @@ export class Bot {
     this.task = { kind: 'idle' };
     this.lastPos.copy(this.p.origin);
     this.stuckTime = 0;
+    this.nade = null;
+    this.usedFlash = this.usedSmoke = false;
+    this.nadeCooldown = this.mgr.game.time + 3;
   }
 
   private get time(): number {
@@ -137,8 +146,12 @@ export class Bot {
     }
 
     if (engaged && !(t.kind === 'defuse' && c.use)) {
+      this.nade = null;
       this.combat(dt);
       lookAt = null;
+    } else if (this.nade || this.planNade()) {
+      this.throwNade(dt);
+      if (moveDir && this.nade?.stage === 'switch') this.steer(moveDir);
     } else {
       this.triggerDown = false;
       if (!moveDir && !c.use && t.kind !== 'plant') {
@@ -196,6 +209,8 @@ export class Bot {
     const fwd = new Vec3();
     angleVectors(this.yaw, this.pitch, fwd);
     const cosFov = Math.cos(this.skill.fov * DEG);
+    // Properly flashed bots see nothing until it wears off.
+    const blind = p.flashUntil - this.time > 0.7 && p.flashStrength > 0.35;
 
     let best: Player | null = null;
     let bestD = Infinity;
@@ -207,6 +222,7 @@ export class Bot {
       to.normalize();
       // Things already being tracked stay tracked outside the cone for a moment.
       const tracked = e === this.enemy && this.time - this.lastSeen < 0.5;
+      if (blind) continue;
       if (!tracked && fwd.dot(to) < cosFov && d > 120) continue;
       if (!this.canSee(eye, e)) continue;
       // Prefer whoever is closest, but stick with the current target unless someone is much closer.
@@ -273,6 +289,77 @@ export class Bot {
     this.errPitch = Math.sin(a) * err * 0.6;
     this.errStart = this.time;
     this.aimHead = this.rand() < s.headChance;
+  }
+
+  // ---------------------------------------------------------------- utility
+
+  /** Decide whether there's a grenade worth throwing right now. */
+  private planNade(): boolean {
+    const p = this.p;
+    if (this.time < this.nadeCooldown || !p.move.onGround || this.task.kind === 'plant' || this.task.kind === 'defuse') return false;
+    const has = (id: GrenadeId) => (p.grenades[id] ?? 0) > 0;
+    const eye = p.eye();
+    let id: GrenadeId | null = null;
+    let target: Vec3 | null = null;
+
+    const he = has('hegrenade') ? this.mgr.grenadeTarget(p) : null;
+    if (he) {
+      id = 'hegrenade';
+      target = he;
+    } else if (p.team === 'T' && !this.usedFlash && has('flashbang')) {
+      // Pop a flash over the entrance just before walking into the site.
+      const e = this.mgr.siteEntranceFor(p);
+      if (e && e.entrance.distanceTo(p.origin) < 700 && e.entrance.distanceTo(p.origin) > 250) {
+        id = 'flashbang';
+        target = e.site.center.pos.clone();
+        this.usedFlash = true;
+      }
+    } else if (p.team === 'CT' && !this.usedSmoke && has('smokegrenade') && this.task.kind === 'hold') {
+      const c = this.mgr.pushingContact(p);
+      if (c) {
+        id = 'smokegrenade';
+        target = c;
+        this.usedSmoke = true;
+      }
+    }
+    if (!id || !target) return false;
+    const aim = solveThrow(eye, target);
+    this.nadeCooldown = this.time + 4;
+    if (!aim) return false;
+    // Flashes go high over the wall so they pop in the air.
+    const pitch = id === 'flashbang' ? Math.max(aim.pitch, 25) : aim.pitch;
+    this.nade = { id, yaw: aim.yaw + (this.rand() - 0.5) * 6, pitch: pitch + (this.rand() - 0.5) * 4, stage: 'switch', until: this.time + 3 };
+    return true;
+  }
+
+  private throwNade(dt: number): void {
+    const p = this.p;
+    const c = p.cmd;
+    const n = this.nade;
+    if (!n) return;
+    if (this.time > n.until || (p.grenades[n.id] ?? 0) <= 0) {
+      this.nade = null;
+      return;
+    }
+    this.turnAngles(n.yaw, n.pitch, dt, 1);
+    switch (n.stage) {
+      case 'switch':
+        if (p.active !== 'grenade' || p.weapons.grenade?.def.id !== n.id) c.slot = 'grenade';
+        else n.stage = 'aim';
+        break;
+      case 'aim':
+        if (Math.abs(angleDiff(this.yaw, n.yaw)) < 3 && Math.abs(this.pitch - n.pitch) < 3 && this.time >= p.nextAttack) n.stage = 'pull';
+        break;
+      case 'pull':
+        // Hold for a tick to pull the pin, then let go to throw.
+        if (!p.weapon?.pinPulled) c.attack = true;
+        else {
+          c.attack = false;
+          this.nade = null;
+          this.nadeCooldown = this.time + 2;
+        }
+        break;
+    }
   }
 
   // ---------------------------------------------------------------- combat

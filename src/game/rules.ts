@@ -120,6 +120,8 @@ export class BombDefusal implements GameMode {
     this.bomb = null;
     this.planter = null;
     g.dropped.length = 0;
+    g.grenades.live.length = 0;
+    g.grenades.smokes.length = 0;
     const idx: Record<Team, number> = { T: 0, CT: 0 };
     for (const p of g.players) {
       const survived = p.alive && p.weapons.knife;

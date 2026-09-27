@@ -101,3 +101,4 @@ canvas { display: block; }
 .chat-line.T { color: #ff9a80; }
 .chat-line.CT { color: #9cc4ff; }
 .spectator .hud-bottom, .spectator .crosshair, .spectator .icons { display: none; }
+.flashbang { position: fixed; inset: 0; background: #fff; opacity: 0; z-index: 50; }

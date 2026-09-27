@@ -26,4 +26,7 @@ export type GameEvent =
   | { type: 'planted'; player: Player; site: string }
   | { type: 'explosion'; pos: Vec3; big: boolean }
   | { type: 'respawn'; player: Player }
-  | { type: 'radio'; player: Player; text: string };
+  | { type: 'radio'; player: Player; text: string }
+  | { type: 'grenade'; player: Player; id: WeaponId }
+  | { type: 'flash'; pos: Vec3 }
+  | { type: 'smoke'; pos: Vec3 };
