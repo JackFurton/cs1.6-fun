@@ -54,6 +54,7 @@ export class Input {
   mouseDX = 0;
   mouseDY = 0;
   locked = false;
+  wheelMode: 'downjump' | 'jump' | 'weapons' = 'downjump';
   onLockChange: (locked: boolean) => void = () => {};
 
   constructor(private readonly target: HTMLElement) {
@@ -77,8 +78,11 @@ export class Input {
     target.addEventListener(
       'wheel',
       (e) => {
-        if (!this.locked) return;
-        this.presses.push(e.deltaY > 0 ? 'nextweapon' : 'prevweapon');
+        if (!this.locked || e.deltaY === 0) return;
+        const down = e.deltaY > 0;
+        // A wheel notch is a tap: it lands in exactly one tick, so each notch is one jump attempt.
+        if (this.wheelMode === 'jump' || (this.wheelMode === 'downjump' && down)) this.tapped.add('jump');
+        else this.presses.push(down ? 'nextweapon' : 'prevweapon');
       },
       { passive: true },
     );

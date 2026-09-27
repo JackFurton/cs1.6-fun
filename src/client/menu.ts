@@ -62,7 +62,14 @@ export class Menu {
           <label><input name="showFps" type="checkbox"> Show FPS</label>
           <label><input name="shadows" type="checkbox"> Shadows (reload)</label>
           <label><input name="antialias" type="checkbox"> Antialiasing (reload)</label>
+          <label>Mouse wheel <select name="wheel"><option value="downjump">Down jumps, up switches</option><option value="jump">Both jump</option><option value="weapons">Switch weapons</option></select></label>
+          <label>Crosshair <select name="crosshairStyle"><option value="static">Static</option><option value="dynamic">Dynamic</option></select></label>
           <label>Crosshair colour <input name="crosshairColor" type="color"></label>
+          <label>Crosshair size <input name="crosshairSize" type="range" min="2" max="16" step="1"></label>
+          <label>Crosshair gap <input name="crosshairGap" type="range" min="-2" max="12" step="1"></label>
+          <label>Crosshair thickness <input name="crosshairThickness" type="range" min="1" max="4" step="1"></label>
+          <label><input name="crosshairDot" type="checkbox"> Centre dot</label>
+          <label><input name="crosshairOutline" type="checkbox"> Outline</label>
         </div>
         <button class="fullscreen">Toggle fullscreen (F11)</button>
         <p class="keys">WASD move · Space jump · Ctrl duck · Shift walk · Mouse1 fire · Mouse2 alt fire · R reload · B buy · 1-5 weapons · Q last weapon · G drop · E use/defuse · Tab scores · Esc menu</p>
@@ -77,12 +84,12 @@ export class Menu {
       location.search = params.toString();
     });
 
-    for (const input of this.el.querySelectorAll<HTMLInputElement>('.menu-box > .settings input')) {
+    for (const input of this.el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.menu-box > .settings input, .menu-box > .settings select')) {
       const key = input.name as keyof Settings;
-      if (input.type === 'checkbox') input.checked = Boolean(settings[key]);
+      if (input instanceof HTMLInputElement && input.type === 'checkbox') input.checked = Boolean(settings[key]);
       else input.value = String(settings[key]);
       input.addEventListener('input', () => {
-        const v = input.type === 'checkbox' ? input.checked : input.type === 'color' ? input.value : Number(input.value);
+        const v = input instanceof HTMLSelectElement ? input.value : input.type === 'checkbox' ? input.checked : input.type === 'color' ? input.value : Number(input.value);
         (this.settings as unknown as Record<string, unknown>)[key] = v;
         this.onChange(this.settings);
       });

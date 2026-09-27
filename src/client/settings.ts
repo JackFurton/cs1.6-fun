@@ -12,6 +12,15 @@ export interface Settings {
   /** Fraction of device pixel ratio to render at. */
   renderScale: number;
   crosshairColor: string;
+  /** Static keeps a fixed gap; dynamic opens up with movement and spray like cl_dynamiccrosshair 1. */
+  crosshairStyle: 'static' | 'dynamic';
+  crosshairSize: number;
+  crosshairGap: number;
+  crosshairThickness: number;
+  crosshairDot: boolean;
+  crosshairOutline: boolean;
+  /** What the mouse wheel does. */
+  wheel: 'downjump' | 'jump' | 'weapons';
 }
 
 const DEFAULTS: Settings = {
@@ -25,6 +34,13 @@ const DEFAULTS: Settings = {
   shadows: true,
   renderScale: 1,
   crosshairColor: '#50ff50',
+  crosshairStyle: 'static',
+  crosshairSize: 6,
+  crosshairGap: 3,
+  crosshairThickness: 2,
+  crosshairDot: false,
+  crosshairOutline: true,
+  wheel: 'downjump',
 };
 
 const KEY = 'cs16fun.settings';
