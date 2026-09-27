@@ -3,7 +3,7 @@ import type { Settings } from './settings';
 export interface NewGameOptions {
   map: string;
   mode: 'defuse' | 'dm';
-  team: 'T' | 'CT' | 'auto';
+  team: 'T' | 'CT' | 'auto' | 'spec';
   teammates: number;
   enemies: number;
   difficulty: 'easy' | 'normal' | 'hard' | 'expert';
@@ -15,7 +15,7 @@ export function readNewGame(params: URLSearchParams, maps: string[]): NewGameOpt
   return {
     map: pick(params.get('map'), maps, maps[0]),
     mode: pick(params.get('mode'), ['defuse', 'dm'] as const, 'defuse'),
-    team: pick(params.get('team'), ['T', 'CT', 'auto'] as const, 'CT'),
+    team: pick(params.get('team'), ['T', 'CT', 'auto', 'spec'] as const, 'CT'),
     teammates: num(params.get('teammates'), 4),
     enemies: num(params.get('enemies'), 5),
     difficulty: pick(params.get('difficulty'), ['easy', 'normal', 'hard', 'expert'] as const, 'normal'),
@@ -45,7 +45,7 @@ export class Menu {
           <div class="settings">
             <label>Map <select name="map">${maps.map((m) => `<option>${m}</option>`).join('')}</select></label>
             <label>Mode <select name="mode"><option value="defuse">Bomb defusal</option><option value="dm">Deathmatch</option></select></label>
-            <label>Team <select name="team"><option value="CT">Counter-Terrorist</option><option value="T">Terrorist</option><option value="auto">Auto</option></select></label>
+            <label>Team <select name="team"><option value="CT">Counter-Terrorist</option><option value="T">Terrorist</option><option value="auto">Auto</option><option value="spec">Spectate bots</option></select></label>
             <label>Bot skill <select name="difficulty"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="expert">Expert</option></select></label>
             <label>Teammates <input name="teammates" type="number" min="0" max="9"></label>
             <label>Enemies <input name="enemies" type="number" min="0" max="9"></label>

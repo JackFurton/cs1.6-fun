@@ -96,3 +96,8 @@ canvas { display: block; }
 .newgame summary { cursor: pointer; color: rgb(255,180,40); }
 .newgame select { background: #222; color: #eee; border: 1px solid #666; }
 .radar { position: fixed; left: 12px; top: 12px; pointer-events: none; }
+.chat { position: absolute; left: 24px; bottom: 120px; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.chat-line { text-shadow: 1px 1px 0 #000; }
+.chat-line.T { color: #ff9a80; }
+.chat-line.CT { color: #9cc4ff; }
+.spectator .hud-bottom, .spectator .crosshair, .spectator .icons { display: none; }

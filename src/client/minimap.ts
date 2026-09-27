@@ -28,6 +28,8 @@ export function renderMapImage(map: MapData, maxPx = 1024): MapImage {
     maxY = Math.max(maxY, s.pos.y);
   }
   minY -= 96;
+  // Anything topping out well above the highest spawn is a wall, not a floor.
+  const wallY = maxY + 90;
   maxY += 160;
   const scale = Math.max(maxX - minX, maxZ - minZ) / maxPx;
   const canvas = document.createElement('canvas');
@@ -37,9 +39,9 @@ export function renderMapImage(map: MapData, maxPx = 1024): MapImage {
   ctx.fillStyle = '#111';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   // Ceilings float above the floor; drawing them would hide tunnels.
-  const sorted = floors.filter((b) => b.min.y < maxY - 160).sort((a, b) => a.max.y - b.max.y);
+  const sorted = floors.filter((b) => b.min.y < wallY - 90).sort((a, b) => a.max.y - b.max.y);
   for (const b of sorted) {
-    const wall = b.max.y > maxY;
+    const wall = b.max.y > wallY;
     const t = Math.max(0, Math.min(1, (b.max.y - minY) / (maxY - minY)));
     const v = Math.round(70 + t * 130);
     ctx.fillStyle = wall ? '#1c1c1c' : `rgb(${v},${v},${Math.round(v * 0.92)})`;
@@ -58,7 +60,7 @@ export function renderMapImage(map: MapData, maxPx = 1024): MapImage {
 }
 
 /** Debug page: the map image with spawns, buy zones and callouts drawn on top. */
-export function showMapView(root: HTMLElement, map: MapData): void {
+export function showMapView(root: HTMLElement, map: MapData): MapImage {
   const img = renderMapImage(map, 1400);
   const ctx = img.canvas.getContext('2d')!;
   const px = (x: number) => (x - img.minX) / img.scale;
@@ -96,4 +98,5 @@ export function showMapView(root: HTMLElement, map: MapData): void {
   }
   img.canvas.style.cssText = 'max-width:100vw;max-height:100vh;display:block;margin:auto';
   root.appendChild(img.canvas);
+  return img;
 }

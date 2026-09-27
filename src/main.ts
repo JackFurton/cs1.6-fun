@@ -8,7 +8,9 @@ const root = document.getElementById('app')!;
 const view = params.get('mapview');
 if (view && MAPS[view]) {
   document.body.style.overflow = 'auto';
-  showMapView(root, MAPS[view]());
+  const map = MAPS[view]();
+  const canvas = showMapView(root, map);
+  if (params.has('nav')) void import('./client/navdebug').then((m) => m.drawNav(canvas, map));
 } else {
   new App(root, params).start();
 }

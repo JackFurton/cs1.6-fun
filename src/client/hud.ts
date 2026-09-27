@@ -34,6 +34,7 @@ export class Hud {
   private icons: HTMLDivElement;
   private spectating: HTMLDivElement;
   private feedEntries: FeedEntry[] = [];
+  private chatEntries: FeedEntry[] = [];
   private centerUntil = 0;
   private frames = 0;
   private lastFpsTime = performance.now();
@@ -59,6 +60,7 @@ export class Hud {
       <div class="progress"><div class="progress-label"></div><div class="progress-bar"><i></i></div></div>
       <div class="icons"><span class="ic-buy">$</span><span class="ic-c4">C4</span><span class="ic-kit">KIT</span></div>
       <div class="spectating"></div>
+      <div class="chat"></div>
       <div class="hud-bottom">
         <div class="hp"><svg viewBox="0 0 10 10" class="icon"><path d="M3.5 0h3v3.5H10v3H6.5V10h-3V6.5H0v-3h3.5z"/></svg><span class="health">100</span></div>
         <div class="ap"><svg viewBox="0 0 10 12" class="icon"><path d="M5 0l5 2v4c0 3-2.2 5.2-5 6C2.2 11.2 0 9 0 6V2z"/></svg><b class="helmet">H</b><span class="armor">0</span></div>
@@ -126,6 +128,16 @@ export class Hud {
   setSpectating(text: string | null): void {
     this.spectating.style.display = text ? 'block' : 'none';
     if (text) this.spectating.textContent = text;
+  }
+
+  chat(text: string, team: 'T' | 'CT'): void {
+    const box = this.el.querySelector('.chat')!;
+    const el = document.createElement('div');
+    el.className = `chat-line ${team}`;
+    el.textContent = text;
+    box.appendChild(el);
+    this.chatEntries.push({ el, until: performance.now() + 8000 });
+    while (this.chatEntries.length > 6) this.chatEntries.shift()!.el.remove();
   }
 
   /** Center-screen message like "Terrorists Win!". */
@@ -214,5 +226,6 @@ export class Hud {
 
     if (now > this.centerUntil) this.centerMsg.style.opacity = '0';
     while (this.feedEntries.length && this.feedEntries[0].until < now) this.feedEntries.shift()!.el.remove();
+    while (this.chatEntries.length && this.chatEntries[0].until < now) this.chatEntries.shift()!.el.remove();
   }
 }
