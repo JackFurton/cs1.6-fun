@@ -135,8 +135,37 @@ export class BotManager {
     return b ? b.explodeAt - this.game.time : Infinity;
   }
 
-  smokeBlocks(_a: Vec3, _b: Vec3): boolean {
-    return false;
+  smokeBlocks(a: Vec3, b: Vec3): boolean {
+    return this.game.grenades.smokeBlocks(a, b);
+  }
+
+  /** The site this bot's team is pushing, and the first entrance on its route, for utility. */
+  siteEntranceFor(p: Player): { site: SitePlan; entrance: Vec3 } | null {
+    const s = this.targetSite;
+    if (!s || p.team !== 'T' || !s.tEntrances.length) return null;
+    const e = s.tEntrances.reduce((a, b) => (a.distanceTo(p.origin) < b.distanceTo(p.origin) ? a : b));
+    return { site: s, entrance: e };
+  }
+
+  /** Recent contacts a CT could smoke off: enemies seen on the approach to the site it holds. */
+  pushingContact(p: Player): Vec3 | null {
+    const now = this.game.time;
+    const recent = this.contacts.filter((c) => c.enemy.team !== p.team && now - c.time < 3 && c.enemy.alive);
+    if (recent.length < 2) return null;
+    const c = recent.reduce((a, b) => (a.pos.distanceTo(p.origin) < b.pos.distanceTo(p.origin) ? a : b));
+    const d = c.pos.distanceTo(p.origin);
+    return d > 500 && d < 1600 ? c.pos.clone() : null;
+  }
+
+  /** A teammate-reported enemy that's out of this bot's sight but in grenade range. */
+  grenadeTarget(p: Player): Vec3 | null {
+    const now = this.game.time;
+    for (const c of this.contacts) {
+      if (c.enemy.team === p.team || now - c.time > 2 || !c.enemy.alive) continue;
+      const d = c.pos.distanceTo(p.origin);
+      if (d > 450 && d < 1300) return c.pos.clone();
+    }
+    return null;
   }
 
   randomNode(): NavNode {

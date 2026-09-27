@@ -2,6 +2,7 @@ import type { Brush } from '../engine/brush';
 import { Trace } from '../engine/trace';
 import { Vec3, angleVectors } from '../engine/vec';
 import type { Game } from './game';
+import { isGrenade } from './grenades';
 import { HITGROUP_MULT, type HitGroup } from './hitbox';
 import type { Player, WeaponState } from './player';
 import { WEAPONS, type Kick, type Slot, type WeaponDef, type WeaponId } from './weapons';
@@ -147,8 +148,10 @@ export function updateWeapon(g: Game, p: Player, dt: number): void {
   if (c.attack) {
     if (def.slot === 'knife') {
       if (g.time >= p.nextAttack) knifeAttack(g, p, false);
-    } else if (def.slot === 'grenade' || def.slot === 'c4') {
-      // Handled by the game rules.
+    } else if (def.slot === 'grenade') {
+      if (g.time >= p.nextAttack && (p.grenades[def.id] ?? 0) > 0) w.pinPulled = true;
+    } else if (def.slot === 'c4') {
+      // Planting is handled by the game rules.
     } else if (def.shellReload && w.reloading && w.clip > 0) {
       // Firing interrupts a shotgun reload between shells.
       w.reloading = false;
@@ -169,6 +172,13 @@ export function updateWeapon(g: Game, p: Player, dt: number): void {
     }
     w.delayFire = true;
   } else {
+    if (w.pinPulled && isGrenade(def.id)) {
+      w.pinPulled = false;
+      g.grenades.throw(p, def.id);
+      p.nextAttack = g.time + 0.5;
+      g.afterThrow(p);
+      return;
+    }
     if (w.delayFire) {
       w.delayFire = false;
       w.shotsFired = Math.min(w.shotsFired, 15);

@@ -5,6 +5,7 @@ import { Vec3, angleVectors } from '../engine/vec';
 import type { MapData, Team } from '../maps/types';
 import { applyHitGroup, armorAbsorb, switchWeapon, updateWeapon } from './combat';
 import type { GameEvent } from './events';
+import { GRENADE_IDS, GrenadeSystem, isGrenade } from './grenades';
 import { rayHitBody, type HitGroup } from './hitbox';
 import { Player, WeaponState } from './player';
 import { WEAPONS, type Slot, type WeaponId } from './weapons';
@@ -47,10 +48,12 @@ export class Game {
   private playerBoxes = new Map<Player, Brush>();
   private stepTimers = new Map<Player, number>();
   private tr = new Trace();
+  readonly grenades: GrenadeSystem;
 
   constructor(readonly map: MapData) {
     this.world = new CollisionWorld(map.brushes);
     this.mover = new PlayerMover(this.world);
+    this.grenades = new GrenadeSystem(this);
   }
 
   emit(e: GameEvent): void {
@@ -120,6 +123,7 @@ export class Game {
       updateWeapon(this, p, TICK_DT);
     }
     this.updateDropped();
+    this.grenades.update(TICK_DT);
     this.rules.tick?.();
     this.time += TICK_DT;
   }
@@ -127,7 +131,8 @@ export class Game {
   private handleInventoryCmds(p: Player): void {
     const c = p.cmd;
     if (c.slot) {
-      switchWeapon(this, p, c.slot);
+      if (c.slot === 'grenade' && p.active === 'grenade') this.cycleGrenade(p);
+      else switchWeapon(this, p, c.slot);
       c.slot = null;
     }
     if (c.drop) {
@@ -317,11 +322,46 @@ export class Game {
     for (let i = this.dropped.length - 1; i >= 0; i--) if (this.dropped[i].pickupAt === Infinity) this.dropped.splice(i, 1);
   }
 
+  /** Pressing 4 again while holding a grenade moves to the next type you carry. */
+  private cycleGrenade(p: Player): void {
+    const cur = p.weapons.grenade?.def.id;
+    const i = GRENADE_IDS.findIndex((g) => g === cur);
+    for (let k = 1; k <= GRENADE_IDS.length; k++) {
+      const id = GRENADE_IDS[(i + k) % GRENADE_IDS.length];
+      if ((p.grenades[id] ?? 0) > 0 && id !== cur) {
+        p.give(id);
+        p.deployedAt = this.time;
+        p.nextAttack = this.time + 0.3;
+        this.emit({ type: 'draw', player: p, weapon: id });
+        return;
+      }
+    }
+  }
+
+  /** After a throw: next grenade of the same kind, another kind, or back to a gun. */
+  afterThrow(p: Player): void {
+    const id = p.weapons.grenade?.def.id;
+    if (!id) return;
+    p.grenades[id] = Math.max(0, (p.grenades[id] ?? 1) - 1);
+    const next = (p.grenades[id] ?? 0) > 0 ? id : GRENADE_IDS.find((g) => (p.grenades[g] ?? 0) > 0);
+    if (next) {
+      p.give(next);
+      p.deployedAt = this.time;
+      p.nextAttack = this.time + 0.5;
+      return;
+    }
+    delete p.weapons.grenade;
+    const back: Slot = p.lastSlot !== 'grenade' && p.weapons[p.lastSlot] ? p.lastSlot : p.weapons.primary ? 'primary' : p.weapons.secondary ? 'secondary' : 'knife';
+    p.active = 'grenade';
+    switchWeapon(this, p, back);
+  }
+
   /** Buy/equip helper used by rules and tests. */
   equip(p: Player, id: WeaponId): void {
     const def = WEAPONS[id];
     if (def.slot === 'grenade') {
       p.grenades[id] = (p.grenades[id] ?? 0) + 1;
+      if (!p.weapons.grenade && isGrenade(id)) p.give(id);
       return;
     }
     if (p.weapons[def.slot] && def.slot !== 'knife') this.dropSlot(p, def.slot, 100);

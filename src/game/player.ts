@@ -23,6 +23,8 @@ export class WeaponState {
   resumeZoom = 0;
   reloadEnd = 0;
   reloading = false;
+  /** Grenade pin pulled; it's thrown when the trigger is released. */
+  pinPulled = false;
 
   constructor(readonly def: WeaponDef) {
     this.clip = def.clip;
@@ -69,6 +71,7 @@ export class Player {
   lastAttacker: Player | null = null;
   flashUntil = 0;
   flashStrength = 0;
+  flashStart = 0;
 
   constructor(
     readonly id: number,

@@ -23,6 +23,7 @@ import { PlayerModel } from './playermodel';
 import { Radar } from './radar';
 import { Renderer } from './renderer';
 import { Scoreboard } from './scoreboard';
+import { SmokeRenderer } from './smokes';
 import { loadSettings, saveSettings } from './settings';
 import { ViewModel } from './viewmodel';
 import { buildWeaponModel } from './weaponmodel';
@@ -51,6 +52,8 @@ export class App {
   readonly bots: BotManager;
   private models = new Map<Player, PlayerModel>();
   private droppedMeshes = new Map<DroppedWeapon, THREE.Object3D>();
+  private nadeMeshes = new Map<object, THREE.Object3D>();
+  private smokes!: SmokeRenderer;
   private bombMesh: THREE.Group | null = null;
   private bombLight: THREE.Mesh | null = null;
   private bombBlink = 0;
@@ -74,6 +77,7 @@ export class App {
     this.game = new Game(map);
     this.renderer = new Renderer(root, this.settings, map);
     this.effects = new Effects(this.renderer.scene);
+    this.smokes = new SmokeRenderer(this.renderer.scene);
     this.renderer.onResize = (w, h) => {
       this.viewmodel.resize(w / h);
       this.effects.setViewportHeight(h);
@@ -314,6 +318,18 @@ export class App {
           if (this.buyMenu.isOpen) this.buyMenu.close();
         }
         break;
+      case 'grenade':
+        if (e.player.team === this.local.team && e.player !== this.local && e.player.isBot) this.game.emit({ type: 'radio', player: e.player, text: 'Fire in the hole!' });
+        break;
+      case 'flash':
+        this.audio.explosion(e.pos, false);
+        // The flash itself resolves in the same tick, so the local player's blindness is already set.
+        if (this.local.flashUntil > this.game.time + 1) this.audio.ring(this.local.flashStrength);
+        this.effects.explosion(e.pos, false);
+        break;
+      case 'smoke':
+        this.audio.hiss(e.pos);
+        break;
       case 'radio':
         this.hud.chat(`(RADIO) ${e.player.name}: ${e.text}`, e.player.team);
         if (e.player.team === this.local.team) this.audio.radio(e.text);
@@ -353,7 +369,8 @@ export class App {
         break;
       }
       case 'sound':
-        if (e.name === 'c4_beep') {
+        if (e.name === 'bounce') this.audio.click(e.pos, 900, 0.25);
+        else if (e.name === 'c4_beep') {
           this.audio.beep(e.pos);
           this.bombBlink = 0.1;
         } else this.audio.click(e.pos, 1500, 0.4);
@@ -435,6 +452,8 @@ export class App {
     }
     this.syncDropped();
     this.syncBomb(dt);
+    this.syncGrenades();
+    this.smokes.update(this.game.grenades.smokes, this.game.time);
 
     const w = p.weapon;
     const scoped = firstPerson && !!zoomFov && !!w && (w.def.zoom?.length ?? 0) > 1;
@@ -450,6 +469,7 @@ export class App {
       spreadPx = Math.min(80, (spread / Math.tan(vfov / 2)) * (innerHeight / 2) * 0.6);
     }
     this.hud.update(p, spreadPx, scoped, dt);
+    this.hud.setFlash(p, this.game.time);
     this.updateRoundHud();
     const d = this.defusal;
     const bomb = p.team === 'T' && d ? (d.bomb?.pos ?? d.looseC4) : null;
@@ -476,6 +496,27 @@ export class App {
     } else this.hud.setProgress(null, 0);
     const c4 = p.weapons.c4 ? (d.siteAt(p.origin) ? 'site' : 'carry') : 'none';
     this.hud.setIcons(d.canBuy(p), c4, p.defuser);
+  }
+
+  private syncGrenades(): void {
+    const live = new Set<object>(this.game.grenades.live);
+    for (const [n, mesh] of this.nadeMeshes) {
+      if (!live.has(n)) {
+        this.renderer.scene.remove(mesh);
+        this.nadeMeshes.delete(n);
+      }
+    }
+    for (const n of this.game.grenades.live) {
+      let mesh = this.nadeMeshes.get(n);
+      if (!mesh) {
+        mesh = buildWeaponModel(n.id).group;
+        mesh.scale.setScalar(0.8);
+        this.nadeMeshes.set(n, mesh);
+        this.renderer.scene.add(mesh);
+      }
+      mesh.position.set(n.pos.x, n.pos.y, n.pos.z);
+      if (!n.stopped) mesh.rotation.x += 0.3;
+    }
   }
 
   private syncDropped(): void {

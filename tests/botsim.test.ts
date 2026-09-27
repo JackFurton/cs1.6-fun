@@ -20,7 +20,7 @@ export function simulate(mapName: string, rounds: number, seed = 1, diff: Diffic
   g.rules = r;
   r.start();
   const mgr = new BotManager(g, r, diff);
-  const stats = { rounds: [] as string[], kills: 0, headshots: 0, plants: 0, defuses: 0, explosions: 0, stuckTicks: 0, aliveTicks: 0, shots: 0 };
+  const stats = { rounds: [] as string[], kills: 0, headshots: 0, plants: 0, defuses: 0, explosions: 0, stuckTicks: 0, aliveTicks: 0, shots: 0, grenades: 0 };
   const maxTicks = rounds * 170 * 100;
   for (let i = 0; i < maxTicks && r.round <= rounds; i++) {
     mgr.update(TICK_DT);
@@ -31,6 +31,7 @@ export function simulate(mapName: string, rounds: number, seed = 1, diff: Diffic
         if (e.headshot) stats.headshots++;
       } else if (e.type === 'planted') stats.plants++;
       else if (e.type === 'shot') stats.shots++;
+      else if (e.type === 'grenade') stats.grenades++;
       else if (e.type === 'roundEnd') {
         stats.rounds.push(`${e.winner}:${e.reason}`);
         if (e.reason === 'defuse') stats.defuses++;

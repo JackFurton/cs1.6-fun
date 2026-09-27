@@ -12,5 +12,8 @@ if (view && MAPS[view]) {
   const canvas = showMapView(root, map);
   if (params.has('nav')) void import('./client/navdebug').then((m) => m.drawNav(canvas, map));
 } else {
-  new App(root, params).start();
+  const app = new App(root, params);
+  app.start();
+  // Lets headless scripts poke at the game state.
+  if (params.has('debug')) (window as unknown as { app: App }).app = app;
 }

@@ -16,6 +16,11 @@ export function botBuy(p: Player, mode: GameMode, opts: { pistolRound: boolean; 
     if (p.money >= 1000 && !(p.armor >= 100 && p.helmet)) buy('vesthelm');
     else if (p.money >= 650 && p.armor < 100) buy('vest');
   };
+  const nades = () => {
+    if (p.money >= 300 && r() < 0.6) buy('hegrenade');
+    if (p.money >= 200 && r() < 0.6) buy('flashbang');
+    if (p.money >= 300 && r() < 0.4) buy('smokegrenade');
+  };
   const kit = () => {
     if (p.team === 'CT' && !p.defuser && p.money >= 200 && r() < 0.6) buy('defuser');
   };
@@ -32,6 +37,7 @@ export function botBuy(p: Player, mode: GameMode, opts: { pistolRound: boolean; 
   if (p.weapons.primary) {
     armor();
     kit();
+    nades();
     return;
   }
 
@@ -47,6 +53,7 @@ export function botBuy(p: Player, mode: GameMode, opts: { pistolRound: boolean; 
     buy(RIFLE[t]);
     armor();
     kit();
+    nades();
     return;
   }
   if (opts.teamEco && opts.lossStreak < 3) {
