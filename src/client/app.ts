@@ -20,6 +20,7 @@ import { Hud } from './hud';
 import { Input, type Action } from './input';
 import { Menu, readNewGame, toggleFullscreen, type NewGameOptions } from './menu';
 import { PlayerModel } from './playermodel';
+import { Radar } from './radar';
 import { Renderer } from './renderer';
 import { Scoreboard } from './scoreboard';
 import { loadSettings, saveSettings } from './settings';
@@ -42,6 +43,7 @@ export class App {
   readonly menu: Menu;
   readonly buyMenu: BuyMenu;
   readonly scoreboard: Scoreboard;
+  readonly radar: Radar;
   readonly viewmodel = new ViewModel();
   readonly effects: Effects;
   readonly audio = new Audio();
@@ -77,6 +79,7 @@ export class App {
     this.input = new Input(this.renderer.gl.domElement);
     this.hud = new Hud(root, this.settings);
     this.scoreboard = new Scoreboard(root);
+    this.radar = new Radar(root, map);
     this.buyMenu = new BuyMenu(root);
     this.menu = new Menu(root, this.settings, this.options, mapNames);
 
@@ -430,6 +433,9 @@ export class App {
     }
     this.hud.update(p, spreadPx, scoped, dt);
     this.updateRoundHud();
+    const d = this.defusal;
+    const bomb = p.team === 'T' && d ? (d.bomb?.pos ?? d.looseC4) : null;
+    this.radar.draw(new Vec3(cam.position.x, 0, cam.position.z), this.yaw, p, this.game.players, bomb);
     const title = `${this.options.map}  ·  ${this.defusal ? `Round ${this.defusal.round}` : 'Deathmatch'}`;
     this.scoreboard.show(this.input.isDown('scores') || this.defusal?.phase === 'matchover', this.game.players, this.defusal?.score ?? null, title, p);
   }

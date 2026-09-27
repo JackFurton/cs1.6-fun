@@ -24,3 +24,21 @@ test('every map has spawns for both teams', () => {
     expect(m.spawns.CT.length, name).toBeGreaterThanOrEqual(5);
   }
 });
+
+test('spawns stand on ground and are not inside geometry', async () => {
+  const { CollisionWorld } = await import('../src/engine/trace');
+  const { HULL_STAND } = await import('../src/engine/pmove');
+  for (const [name, make] of Object.entries(MAPS)) {
+    const m = make();
+    const world = new CollisionWorld(m.brushes);
+    for (const s of [...m.spawns.T, ...m.spawns.CT]) {
+      const p = s.pos.clone();
+      p.y += 1;
+      expect(world.trace(p, p, HULL_STAND.mins, HULL_STAND.maxs).startsolid, `${name} spawn ${p.x},${p.z}`).toBe(false);
+      const down = p.clone();
+      down.y -= 8;
+      expect(world.trace(p, down, HULL_STAND.mins, HULL_STAND.maxs).fraction, `${name} spawn floor ${p.x},${p.z}`).toBeLessThan(1);
+    }
+    expect(m.bombsites.length, name).toBeGreaterThanOrEqual(1);
+  }
+});

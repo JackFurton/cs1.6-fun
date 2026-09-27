@@ -72,7 +72,7 @@ export class MapBuilder {
     return this;
   }
 
-  build(extra: Pick<MapData, 'sky' | 'sun' | 'ambient'>): MapData {
+  build(extra: Pick<MapData, 'sky' | 'sun' | 'ambient' | 'fog'>): MapData {
     return {
       name: this.name,
       brushes: this.brushes,
