@@ -18,3 +18,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npx playwright install --with-deps chromium-headless-shell
+      - run: node scripts/smoke.mjs 'fire&give=ak47&pos=600,1,0&yaw=90&walk' 'fire&give=awp&bots=3' 'fire&give=knife'

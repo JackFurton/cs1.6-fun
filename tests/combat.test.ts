@@ -16,6 +16,7 @@ function testMap(wallThickness = 8) {
 
 function setup(wall = 8) {
   const g = new Game(testMap(wall));
+  g.rand = () => 0.5;
   const ct = g.addPlayer('ct', 'CT', false);
   const t = g.addPlayer('t', 'T', true);
   g.spawn(ct, 0);

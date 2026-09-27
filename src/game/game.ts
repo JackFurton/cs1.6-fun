@@ -41,6 +41,8 @@ export class Game {
   time = 0;
   events: GameEvent[] = [];
   rules: Rules = {};
+  /** Spread and recoil randomness; tests swap in a fixed sequence. */
+  rand: () => number = Math.random;
   private playerBoxes = new Map<Player, Brush>();
   private stepTimers = new Map<Player, number>();
   private tr = new Trace();
@@ -150,7 +152,7 @@ export class Game {
       const dmg = fallDamage(p.move.landSpeed);
       if (dmg > 0) this.damage(p, null, dmg, null, 'world', new Vec3(0, -1, 0), false);
       if (p.move.landSpeed > 300) {
-        this.emit({ type: 'step', player: p, land: true });
+        this.emit({ type: 'step', player: p, land: true, tex: this.groundTex(p) });
         p.lastNoise = { time: this.time, radius: 900 };
       }
     }
@@ -161,12 +163,21 @@ export class Game {
     t -= TICK_DT;
     if (p.move.onGround && speed >= 150 && !p.move.ducked) {
       if (t <= 0) {
-        this.emit({ type: 'step', player: p, land: false });
+        this.emit({ type: 'step', player: p, land: false, tex: this.groundTex(p) });
         p.lastNoise = { time: this.time, radius: 1100 };
         t = 0.35;
       }
     }
     this.stepTimers.set(p, t);
+  }
+
+  private groundTex(p: Player): string {
+    const from = p.origin.clone();
+    from.y += 1;
+    const to = p.origin.clone();
+    to.y -= 8;
+    this.world.trace(from, to, undefined, undefined, this.tr);
+    return this.tr.brush?.tex ?? '';
   }
 
   private fly(p: Player): void {
@@ -217,7 +228,7 @@ export class Game {
     if (attacker && attacker !== victim) victim.lastAttacker = attacker;
     if (weapon !== 'world' && weapon !== 'knife') victim.velocityModifier = 0.5;
     // Aim punch: getting hit knocks the view a little.
-    victim.punchPitch += Math.min(3, amount * 0.05) * (Math.random() < 0.5 ? 1 : -0.5);
+    victim.punchPitch += Math.min(3, amount * 0.05) * (this.rand() < 0.5 ? 1 : -0.5);
     this.emit({ type: 'hurt', victim, attacker, amount, group, dir });
     if (victim.health <= 0) this.kill(victim, attacker, weapon, group === 'head', wallbang);
   }

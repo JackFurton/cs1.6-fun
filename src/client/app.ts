@@ -8,6 +8,7 @@ import type { Player } from '../game/player';
 import type { Slot, WeaponId } from '../game/weapons';
 import { WEAPONS } from '../game/weapons';
 import { MAPS } from '../maps';
+import { Audio } from './audio';
 import { Effects } from './effects';
 import { Hud } from './hud';
 import { Input, type Action } from './input';
@@ -30,6 +31,7 @@ export class App {
   readonly menu: Menu;
   readonly viewmodel = new ViewModel();
   readonly effects: Effects;
+  readonly audio = new Audio();
   readonly local: Player;
   private models = new Map<Player, PlayerModel>();
   private droppedMeshes = new Map<DroppedWeapon, THREE.Object3D>();
@@ -81,9 +83,14 @@ export class App {
     if (params.has('nomenu')) this.menu.show(false);
     this.autoFire = params.has('fire');
 
-    this.menu.onPlay = () => void this.input.lock(this.settings.rawInput);
+    this.audio.setVolume(this.settings.volume);
+    this.menu.onPlay = () => {
+      this.audio.unlock();
+      void this.input.lock(this.settings.rawInput);
+    };
     this.menu.onChange = (s) => {
       saveSettings(s);
+      this.audio.setVolume(s.volume);
       this.renderer.applySettings();
       this.hud.applySettings();
     };
@@ -173,10 +180,16 @@ export class App {
     return p.active;
   }
 
+  /** Sounds made by the local player play unpanned. */
+  private soundPos(p: Player): Vec3 | null {
+    return p === this.local ? null : p.eye();
+  }
+
   private onEvent(e: GameEvent): void {
     this.hud.onEvent(e, this.local);
     switch (e.type) {
       case 'shot': {
+        this.audio.shot(e.weapon, e.silenced, this.soundPos(e.player));
         if (e.player === this.local) {
           this.viewmodel.onShot();
           const cam = this.renderer.camera;
@@ -196,12 +209,41 @@ export class App {
       }
       case 'impact':
         this.effects.impact(e.pos, e.normal, e.tex);
+        if (Math.random() < 0.5) this.audio.impact(e.pos, e.tex);
+        break;
+      case 'hurt':
+        if (e.group) this.audio.hit(this.soundPos(e.victim), e.group === 'head', e.victim.helmet || e.victim.armor > 0);
+        break;
+      case 'step':
+        this.audio.step(this.soundPos(e.player), e.tex, e.land);
+        break;
+      case 'reload': {
+        const def = WEAPONS[e.weapon];
+        this.audio.reload(this.soundPos(e.player), def.shellReload ?? def.reload, !!def.shellReload);
+        break;
+      }
+      case 'empty':
+        if (e.player === this.local) this.audio.click(null, 3000, 0.3);
+        break;
+      case 'draw':
+      case 'pickup':
+        if (e.player === this.local) this.audio.click(null, 1200, 0.25);
+        break;
+      case 'zoom':
+        if (e.player === this.local) this.audio.click(null, 4000, 0.15);
+        break;
+      case 'silencer':
+        this.audio.click(this.soundPos(e.player), 1000, 0.3, 0.5);
         break;
       case 'blood':
         this.effects.blood(e.pos, e.dir);
         break;
       case 'knife':
         if (e.player === this.local) this.viewmodel.onKnife();
+        this.audio.swoosh(this.soundPos(e.player), e.hit);
+        break;
+      case 'kill':
+        if (e.killer === this.local && e.victim !== this.local && e.headshot) this.audio.ui(1400);
         break;
     }
   }
@@ -213,6 +255,9 @@ export class App {
     const eyeY = p.alive ? vh : 12;
     this.renderer.setView(lerp(p.prevOrigin.x, p.origin.x), lerp(p.prevOrigin.y, p.origin.y) + eyeY, lerp(p.prevOrigin.z, p.origin.z), this.yaw + p.punchYaw, this.pitch + p.punchPitch);
     this.renderer.setZoom(zoomFov);
+    const cam = this.renderer.camera;
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    this.audio.setListener(cam.position.x, cam.position.y, cam.position.z, fwd.x, fwd.y, fwd.z);
 
     for (const other of this.game.players) {
       if (other === p) continue;
