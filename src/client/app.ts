@@ -6,7 +6,7 @@ import { currentSpread } from '../game/combat';
 import { Deathmatch } from '../game/deathmatch';
 import type { GameEvent } from '../game/events';
 import { DroppedWeapon, Game, TICK_DT } from '../game/game';
-import type { GameMode } from '../game/mode';
+import type { BuyItem, GameMode } from '../game/mode';
 import { Player } from '../game/player';
 import { BombDefusal, DEFUSE_TIME, DEFUSE_TIME_KIT, PLANT_TIME } from '../game/rules';
 import type { Slot, WeaponId } from '../game/weapons';
@@ -14,7 +14,7 @@ import { WEAPONS } from '../game/weapons';
 import { MAPS } from '../maps';
 import type { Team } from '../maps/types';
 import { Audio } from './audio';
-import { BuyMenu } from './buymenu';
+import { BuyMenu, owns } from './buymenu';
 import { Effects } from './effects';
 import { Hud } from './hud';
 import { Input, type Action } from './input';
@@ -67,6 +67,9 @@ export class App {
   private deathTime = -10;
   private shake = 0;
   private leaveGuard = false;
+  private buyUnlocked = false;
+  private purchases: BuyItem[] = [];
+  private lastPurchases: BuyItem[] = [];
   private resume: HTMLDivElement;
   private specYaw = 0;
   private specPitch = 0;
@@ -134,8 +137,25 @@ export class App {
 
     this.buyMenu.onBuy = (item) => {
       const err = this.mode.buy(this.local, item);
-      if (!err) this.audio.click(null, 900, 0.3);
+      if (!err) {
+        this.audio.click(null, 900, 0.3);
+        this.purchases.push(item);
+      }
       return err;
+    };
+    this.buyMenu.onRebuy = () => this.rebuy();
+    this.buyMenu.timeLeft = () => {
+      const d = this.defusal;
+      if (!d) return null;
+      const end = d.phase === 'freeze' ? d.phaseEnd + d.cfg.buyTime : d.roundStart + d.cfg.buyTime;
+      return end - this.game.time;
+    };
+    this.buyMenu.onClose = () => {
+      // The menu freed the mouse for clicking; take it back. Closing is a key press or click,
+      // which counts as the user gesture pointer lock needs.
+      if (!this.buyUnlocked) return;
+      this.buyUnlocked = false;
+      this.lockAgain();
     };
     this.audio.setVolume(this.settings.volume);
     this.menu.onPlay = () => {
@@ -174,7 +194,8 @@ export class App {
         this.resume.style.display = 'none';
         return;
       }
-      if (this.buyMenu.isOpen) this.buyMenu.close();
+      // We released the mouse ourselves for the buy menu.
+      if (this.buyMenu.isOpen) return;
       // Esc leaves the page focused; alt-tab doesn't. Only Esc should bring up the full menu,
       // alt-tabbing back just needs a click. Focus settles a moment after the lock is lost.
       setTimeout(() => {
@@ -199,7 +220,26 @@ export class App {
 
   private lockAgain(): void {
     this.resume.style.display = 'none';
-    void this.input.lock(this.settings.rawInput);
+    this.input.lock(this.settings.rawInput).catch(() => {});
+    // Without a user gesture the browser refuses; fall back to asking for a click.
+    setTimeout(() => {
+      if (!this.input.locked && !this.buyMenu.isOpen && this.menu.el.style.display === 'none') this.resume.style.display = 'flex';
+    }, 300);
+  }
+
+  /** Buy last round's loadout again, skipping anything already owned. */
+  private rebuy(): string | null {
+    const list = this.lastPurchases.length ? this.lastPurchases : this.purchases;
+    if (!list.length) return 'Nothing to rebuy yet';
+    let err: string | null = null;
+    for (const item of list) {
+      if (owns(this.local, item)) continue;
+      const e = this.mode.buy(this.local, item);
+      if (e) err = e;
+      else this.purchases.push(item);
+    }
+    if (!err) this.audio.click(null, 900, 0.3);
+    return err;
   }
 
   start(): void {
@@ -285,6 +325,10 @@ export class App {
       return;
     }
     this.buyMenu.open(this.local);
+    if (this.input.locked) {
+      this.buyUnlocked = true;
+      document.exitPointerLock();
+    }
   }
 
   private cycleSlot(dir: number): Slot {
@@ -393,10 +437,16 @@ export class App {
         if (e.player.team === this.local.team) this.audio.radio(e.text);
         break;
       case 'respawn':
-        if (e.player === this.local) this.yaw = e.player.yaw;
+        if (e.player === this.local) {
+          this.yaw = e.player.yaw;
+          if (this.purchases.length) this.lastPurchases = this.purchases;
+          this.purchases = [];
+        }
         break;
       case 'round':
         if (e.phase === 'freeze') {
+          if (this.purchases.length) this.lastPurchases = this.purchases;
+          this.purchases = [];
           this.yaw = this.local.yaw;
           this.pitch = 0;
           this.specTarget = null;
@@ -528,6 +578,7 @@ export class App {
     }
     this.hud.update(p, spreadPx, scoped, dt);
     this.hud.setFlash(p, this.game.time);
+    this.buyMenu.update();
     this.updateRoundHud();
     const d = this.defusal;
     const bomb = p.team === 'T' && d ? (d.bomb?.pos ?? d.looseC4) : null;

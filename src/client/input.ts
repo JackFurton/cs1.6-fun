@@ -110,7 +110,9 @@ export class Input {
     try {
       // unadjustedMovement skips OS mouse acceleration, the equivalent of 1.6's m_rawinput 1.
       await el.requestPointerLock(raw ? { unadjustedMovement: true } : undefined);
-    } catch {
+    } catch (err) {
+      // Some platforms don't support raw movement; retry plain. A missing user gesture fails both.
+      if (!raw) throw err;
       await el.requestPointerLock();
     }
   }
