@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { dummyThink } from '../bots/dummy';
+import { BotManager } from '../bots/manager';
 import { Trace } from '../engine/trace';
-import { DEG, Vec3, angleVectors } from '../engine/vec';
+import { DEG, Vec3, angleDiff, angleVectors } from '../engine/vec';
 import { currentSpread } from '../game/combat';
 import { Deathmatch } from '../game/deathmatch';
 import type { GameEvent } from '../game/events';
 import { DroppedWeapon, Game, TICK_DT } from '../game/game';
 import type { GameMode } from '../game/mode';
-import type { Player } from '../game/player';
+import { Player } from '../game/player';
 import { BombDefusal, DEFUSE_TIME, DEFUSE_TIME_KIT, PLANT_TIME } from '../game/rules';
 import type { Slot, WeaponId } from '../game/weapons';
 import { WEAPONS } from '../game/weapons';
@@ -48,6 +48,7 @@ export class App {
   readonly effects: Effects;
   readonly audio = new Audio();
   readonly local: Player;
+  readonly bots: BotManager;
   private models = new Map<Player, PlayerModel>();
   private droppedMeshes = new Map<DroppedWeapon, THREE.Object3D>();
   private bombMesh: THREE.Group | null = null;
@@ -62,6 +63,8 @@ export class App {
   private specTarget: Player | null = null;
   private deathTime = -10;
   private shake = 0;
+  private specYaw = 0;
+  private specPitch = 0;
   private tr = new Trace();
 
   constructor(root: HTMLElement, params: URLSearchParams) {
@@ -84,9 +87,15 @@ export class App {
     this.menu = new Menu(root, this.settings, this.options, mapNames);
 
     const o = this.options;
-    const myTeam: Team = o.team === 'auto' ? (Math.random() < 0.5 ? 'T' : 'CT') : o.team;
+    const spectating = o.team === 'spec';
+    const myTeam: Team = o.team === 'T' || o.team === 'CT' ? o.team : Math.random() < 0.5 ? 'T' : 'CT';
     const other: Team = myTeam === 'T' ? 'CT' : 'T';
-    this.local = this.game.addPlayer('Player', myTeam, false);
+    // A spectator is a player object that never joins the game, so it's permanently dead.
+    this.local = spectating ? new Player(-1, 'Spectator', myTeam, false) : this.game.addPlayer('Player', myTeam, false);
+    if (spectating) {
+      this.local.alive = false;
+      root.classList.add('spectator');
+    }
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     for (let i = 0; i < o.teammates; i++) this.game.addPlayer(names.pop()!, myTeam, true);
     for (let i = 0; i < o.enemies; i++) this.game.addPlayer(names.pop()!, other, true);
@@ -94,6 +103,7 @@ export class App {
     this.mode = o.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
     this.game.rules = this.mode;
     this.mode.start();
+    this.bots = new BotManager(this.game, this.mode, o.difficulty);
     this.yaw = this.local.yaw;
 
     const give = params.get('give');
@@ -169,7 +179,7 @@ export class App {
     this.acc += dt;
     while (this.acc >= TICK_DT) {
       this.buildLocalCmd();
-      for (const p of this.game.players) if (p.isBot && p.alive) dummyThink(p, this.game.time);
+      this.bots.update(TICK_DT);
       this.game.tick();
       this.input.endTick();
       this.acc -= TICK_DT;
@@ -304,6 +314,10 @@ export class App {
           if (this.buyMenu.isOpen) this.buyMenu.close();
         }
         break;
+      case 'radio':
+        this.hud.chat(`(RADIO) ${e.player.name}: ${e.text}`, e.player.team);
+        if (e.player.team === this.local.team) this.audio.radio(e.text);
+        break;
       case 'respawn':
         if (e.player === this.local) this.yaw = e.player.yaw;
         break;
@@ -389,12 +403,16 @@ export class App {
       if (t) {
         // Chase cam behind the spectated player, pulled in if a wall is in the way.
         const eye = new Vec3(lerp(t.prevOrigin.x, t.origin.x), lerp(t.prevOrigin.y, t.origin.y) + t.move.viewHeight, lerp(t.prevOrigin.z, t.origin.z));
+        // Follow the spectated player's view, eased so bot flicks don't jerk the camera around.
+        const ease = 1 - Math.exp(-dt * 8);
+        this.specYaw += angleDiff(t.yaw, this.specYaw) * ease;
+        this.specPitch += (t.pitch * 0.5 - 10 - this.specPitch) * ease;
         const f = new Vec3();
-        angleVectors(this.yaw, this.pitch, f);
+        angleVectors(this.specYaw, this.specPitch, f);
         const want = eye.clone().addScaled(f, -110);
         this.game.world.trace(eye, want, new Vec3(-4, -4, -4), new Vec3(4, 4, 4), this.tr);
         const cam = this.tr.endpos;
-        this.renderer.setView(cam.x, cam.y, cam.z, this.yaw, this.pitch);
+        this.renderer.setView(cam.x, cam.y, cam.z, this.specYaw, this.specPitch);
         this.hud.setSpectating(`Spectating ${t.name}  (Mouse1: next player)`);
       }
     }
@@ -435,7 +453,7 @@ export class App {
     this.updateRoundHud();
     const d = this.defusal;
     const bomb = p.team === 'T' && d ? (d.bomb?.pos ?? d.looseC4) : null;
-    this.radar.draw(new Vec3(cam.position.x, 0, cam.position.z), this.yaw, p, this.game.players, bomb);
+    this.radar.draw(new Vec3(cam.position.x, 0, cam.position.z), firstPerson ? this.yaw : this.specYaw, p, this.game.players, bomb);
     const title = `${this.options.map}  ·  ${this.defusal ? `Round ${this.defusal.round}` : 'Deathmatch'}`;
     this.scoreboard.show(this.input.isDown('scores') || this.defusal?.phase === 'matchover', this.game.players, this.defusal?.score ?? null, title, p);
   }

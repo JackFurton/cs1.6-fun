@@ -25,4 +25,5 @@ export type GameEvent =
   | { type: 'roundEnd'; winner: Team; reason: 'elimination' | 'time' | 'bomb' | 'defuse' }
   | { type: 'planted'; player: Player; site: string }
   | { type: 'explosion'; pos: Vec3; big: boolean }
-  | { type: 'respawn'; player: Player };
+  | { type: 'respawn'; player: Player }
+  | { type: 'radio'; player: Player; text: string };
