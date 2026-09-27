@@ -41,7 +41,7 @@ export function currentSpread(p: Player, w: WeaponState): number {
   return spread;
 }
 
-function kickBack(p: Player, w: WeaponState, kick: Kick): void {
+function kickBack(g: Game, p: Player, w: WeaponState, kick: Kick): void {
   const [upBase, latBase, upMod, latMod, upMax, latMax, dirChange] = kick;
   let up: number;
   let lat: number;
@@ -55,7 +55,7 @@ function kickBack(p: Player, w: WeaponState, kick: Kick): void {
   p.punchPitch = Math.min(upMax, p.punchPitch + up);
   if (w.kickDir === 1) p.punchYaw = Math.min(latMax, p.punchYaw + lat);
   else p.punchYaw = Math.max(-latMax, p.punchYaw - lat);
-  if (Math.floor(Math.random() * (dirChange + 1)) === 0) w.kickDir = -w.kickDir;
+  if (Math.floor(g.rand() * (dirChange + 1)) === 0) w.kickDir = -w.kickDir;
 }
 
 /** PM_DropPunchAngle from 1.6. */
@@ -234,8 +234,8 @@ function fire(g: Game, p: Player, w: WeaponState): void {
   if (def.id === 'm4a1' && w.silenced) damage = 33;
   let lastEnd = eye;
   for (let i = 0; i < pellets; i++) {
-    const x = Math.random() - 0.5 + (Math.random() - 0.5);
-    const y = Math.random() - 0.5 + (Math.random() - 0.5);
+    const x = g.rand() - 0.5 + (g.rand() - 0.5);
+    const y = g.rand() - 0.5 + (g.rand() - 0.5);
     const dir = fwd.clone().addScaled(right, x * spread).addScaled(up, y * spread);
     dir.normalize();
     lastEnd = fireBullet(g, p, eye, dir, def, damage, pellets > 1 ? 0 : def.penetration);
@@ -244,8 +244,8 @@ function fire(g: Game, p: Player, w: WeaponState): void {
   const loud = w.silenced ? def.loudness * 0.25 : def.loudness;
   p.lastNoise = { time: g.time, radius: loud };
 
-  if (def.kick) kickBack(p, w, def.kick[moveState(p, 5)]);
-  else if (def.punch) p.punchPitch += def.punch * (def.pellets ? 0.5 + Math.random() * 0.5 : 1);
+  if (def.kick) kickBack(g, p, w, def.kick[moveState(p, 5)]);
+  else if (def.punch) p.punchPitch += def.punch * (def.pellets ? 0.5 + g.rand() * 0.5 : 1);
 
   if (def.zoom && w.zoom > 0 && (def.id === 'awp' || def.id === 'scout')) {
     w.resumeZoom = w.zoom;

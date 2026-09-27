@@ -41,6 +41,8 @@ export class Game {
   time = 0;
   events: GameEvent[] = [];
   rules: Rules = {};
+  /** Spread and recoil randomness; tests swap in a fixed sequence. */
+  rand: () => number = Math.random;
   private playerBoxes = new Map<Player, Brush>();
   private stepTimers = new Map<Player, number>();
   private tr = new Trace();
@@ -226,7 +228,7 @@ export class Game {
     if (attacker && attacker !== victim) victim.lastAttacker = attacker;
     if (weapon !== 'world' && weapon !== 'knife') victim.velocityModifier = 0.5;
     // Aim punch: getting hit knocks the view a little.
-    victim.punchPitch += Math.min(3, amount * 0.05) * (Math.random() < 0.5 ? 1 : -0.5);
+    victim.punchPitch += Math.min(3, amount * 0.05) * (this.rand() < 0.5 ? 1 : -0.5);
     this.emit({ type: 'hurt', victim, attacker, amount, group, dir });
     if (victim.health <= 0) this.kill(victim, attacker, weapon, group === 'head', wallbang);
   }
