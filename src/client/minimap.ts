@@ -39,7 +39,7 @@ export function renderMapImage(map: MapData, maxPx = 1024): MapImage {
   ctx.fillStyle = '#111';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   // Ceilings float above the floor; drawing them would hide tunnels.
-  const sorted = floors.filter((b) => b.min.y < wallY - 90).sort((a, b) => a.max.y - b.max.y);
+  const sorted = floors.filter((b) => b.min.y <= wallY - 50).sort((a, b) => a.max.y - b.max.y);
   for (const b of sorted) {
     const wall = b.max.y > wallY;
     const t = Math.max(0, Math.min(1, (b.max.y - minY) / (maxY - minY)));

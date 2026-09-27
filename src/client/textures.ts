@@ -136,6 +136,29 @@ function planks(ctx: Ctx, rnd: () => number, base: number, count: number, vertic
 
 const DEFS: Record<string, TexDef> = {
   sand: { scale: 128, draw: (c, r) => noiseFill(c, r, 0xc4a870, 0.35, 0.12) },
+  snow: { scale: 128, draw: (c, r) => noiseFill(c, r, 0xe4ecf2, 0.12, 0.06) },
+  ice: {
+    scale: 128,
+    draw: (c, r) => {
+      noiseFill(c, r, 0xa8cce0, 0.25, 0.05, [2, 4]);
+      // Cracks.
+      c.strokeStyle = 'rgba(255,255,255,0.5)';
+      c.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        c.beginPath();
+        let x = r() * SIZE;
+        let y = r() * SIZE;
+        c.moveTo(x, y);
+        for (let k = 0; k < 4; k++) {
+          x += (r() - 0.5) * 50;
+          y += (r() - 0.5) * 50;
+          c.lineTo(x, y);
+        }
+        c.stroke();
+      }
+    },
+  },
+  ice_wall: { scale: 128, draw: (c, r) => bricks(c, r, 0xb8d4e4, 'rgb(150,175,190)', 4, 2) },
   dirt: { scale: 128, draw: (c, r) => noiseFill(c, r, 0x8a7050, 0.45, 0.15) },
   grass: { scale: 128, draw: (c, r) => noiseFill(c, r, 0x5a7a3a, 0.5, 0.2) },
   asphalt: { scale: 128, draw: (c, r) => noiseFill(c, r, 0x55565a, 0.25, 0.2) },

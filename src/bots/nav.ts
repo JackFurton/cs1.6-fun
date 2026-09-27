@@ -70,12 +70,13 @@ export class NavGraph {
         // Walk down the column finding every floor with standing room above it.
         let y = maxY + 8;
         let guard = 0;
-        while (y > minY && guard++ < 64) {
+        while (y > minY && guard++ < 128) {
           top.set(x, y, z);
           bottom.set(x, minY, z);
           const t = this.world.trace(top, bottom, mins, maxs, this.tr);
+          // Step finely enough to land in low rooms: a 72u hull under an 80u ceiling has an 8u window.
           if (t.startsolid) {
-            y -= 16;
+            y -= 8;
             continue;
           }
           if (t.fraction >= 1) break;
@@ -95,7 +96,7 @@ export class NavGraph {
           while (y > minY) {
             top.set(x, y, z);
             if (!this.world.trace(top, top, mins, maxs, this.tr).startsolid) break;
-            y -= 16;
+            y -= 8;
           }
         }
       }

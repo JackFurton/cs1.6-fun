@@ -28,6 +28,8 @@ export type Task =
   | { kind: 'plant'; spot: Vec3 }
   | { kind: 'defuse'; bomb: Vec3 }
   | { kind: 'fetch'; pos: Vec3 }
+  /** Walk over a gun on the floor to pick it up, then carry on with `then`. */
+  | { kind: 'grab'; pos: Vec3; then: Task }
   /** Deathmatch or late round: roam and fight. */
   | { kind: 'hunt'; dest: Vec3 | null };
 
@@ -186,6 +188,12 @@ export class Bot {
         return t.dest;
       }
       case 'fetch':
+        return t.pos;
+      case 'grab':
+        if (this.p.weapons.primary || Math.hypot(t.pos.x - this.p.origin.x, t.pos.z - this.p.origin.z) < 24) {
+          this.task = t.then;
+          return null;
+        }
         return t.pos;
       case 'hunt': {
         // Chase what we last knew about, otherwise roam.

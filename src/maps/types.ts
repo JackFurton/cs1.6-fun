@@ -1,5 +1,6 @@
 import type { Brush } from '../engine/brush';
 import type { Vec3 } from '../engine/vec';
+import type { WeaponId } from '../game/weapons';
 
 export type Team = 'T' | 'CT';
 
@@ -22,6 +23,8 @@ export interface MapData {
   buyzones: Record<Team, Zone[]>;
   /** Named areas for the radar and bot callouts. */
   callouts: Zone[];
+  /** Guns laid on the floor at the start of every round (fy_ maps). */
+  weaponSpawns: { id: WeaponId; pos: Vec3 }[];
   sky: { top: number; horizon: number };
   sun: { dir: [number, number, number]; color: number; intensity: number };
   ambient: number;
