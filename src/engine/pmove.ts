@@ -84,7 +84,7 @@ export class PlayerMover {
     return this.world.traceWith(start, end, s.mins, s.maxs, this.others, tr);
   }
 
-  private fits(s: MoveState, origin: Vec3, ducked: boolean): boolean {
+  private fits(origin: Vec3, ducked: boolean): boolean {
     const hull = ducked ? HULL_DUCK : HULL_STAND;
     return !this.world.traceWith(origin, origin, hull.mins, hull.maxs, this.others, tr).startsolid;
   }
@@ -155,7 +155,7 @@ export class PlayerMover {
         // Mid-air duck is instant and pulls the feet up, which is what makes duck-jumps reach higher boxes.
         const raised = tmpA.copy(s.origin);
         raised.y += HULL_STAND.maxs.y - HULL_DUCK.maxs.y;
-        if (this.fits(s, raised, true)) s.origin.copy(raised);
+        if (this.fits(raised, true)) s.origin.copy(raised);
         s.ducked = true;
         s.duckAmount = 1;
         return;
@@ -167,15 +167,15 @@ export class PlayerMover {
 
     if (s.ducked) {
       if (s.onGround) {
-        if (!this.fits(s, s.origin, false)) return;
+        if (!this.fits(s.origin, false)) return;
         s.ducked = false;
         s.duckAmount = 1;
       } else {
         // Unducking in the air drops the feet back down if there's room.
         const lowered = tmpA.copy(s.origin);
         lowered.y -= HULL_STAND.maxs.y - HULL_DUCK.maxs.y;
-        if (this.fits(s, lowered, false)) s.origin.copy(lowered);
-        else if (!this.fits(s, s.origin, false)) return;
+        if (this.fits(lowered, false)) s.origin.copy(lowered);
+        else if (!this.fits(s.origin, false)) return;
         s.ducked = false;
         s.duckAmount = 0;
         return;
