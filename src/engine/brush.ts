@@ -18,6 +18,8 @@ export interface Brush {
   seeThrough?: boolean;
   /** Units of material a bullet loses crossing 1 unit of this brush (wallbang cost multiplier). */
   penetration?: number;
+  /** Stretch the texture over each face instead of world-aligned tiling (crates). */
+  fit?: boolean;
   id: number;
 }
 
@@ -42,6 +44,7 @@ export interface BrushOpts {
   clip?: boolean;
   seeThrough?: boolean;
   penetration?: number;
+  fit?: boolean;
 }
 
 export function boxBrush(min: Vec3, max: Vec3, tex: string, opts: BrushOpts = {}): Brush {
