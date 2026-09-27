@@ -140,6 +140,21 @@ export class Effects {
     }
   }
 
+  explosion(pos: Vec3, big: boolean): void {
+    const n = big ? 160 : 60;
+    const speed = big ? 700 : 350;
+    for (let i = 0; i < n; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).normalize().multiplyScalar(speed * (0.3 + Math.random()));
+      const fire = i % 3 !== 0;
+      const color = fire ? new THREE.Color(1, 0.55 + Math.random() * 0.3, 0.15) : new THREE.Color(0.25, 0.24, 0.22);
+      this.spawn(new THREE.Vector3(pos.x, pos.y + 16, pos.z), v, fire ? 0.6 + Math.random() * 0.4 : 1.5 + Math.random() * 1.5, fire ? (big ? 60 : 30) : big ? 90 : 45, color, fire ? 50 : -20);
+    }
+    const f = this.flashes[this.nextFlash];
+    this.nextFlash = (this.nextFlash + 1) % this.flashes.length;
+    f.light.position.set(pos.x, pos.y + 64, pos.z);
+    f.life = big ? 0.4 : 0.2;
+  }
+
   tracer(from: THREE.Vector3, to: Vec3): void {
     const geo = new THREE.BufferGeometry().setFromPoints([from, new THREE.Vector3(to.x, to.y, to.z)]);
     const line = new THREE.Line(geo, this.tracerMat);
@@ -196,7 +211,8 @@ export class Effects {
     }
     for (const f of this.flashes) {
       f.life = Math.max(0, f.life - dt);
-      f.light.intensity = f.life > 0 ? 3000 : 0;
+      f.light.intensity = f.life > 0 ? (f.life > 0.06 ? 400000 * f.life : 3000) : 0;
+      f.light.distance = f.life > 0.06 ? 3000 : 300;
     }
   }
 }

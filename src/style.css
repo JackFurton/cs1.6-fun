@@ -56,3 +56,42 @@ canvas { display: block; }
 .scope i { position: absolute; background: #000; }
 .scope .h { left: 0; right: 0; top: 50%; height: 1px; }
 .scope .v { top: 0; bottom: 0; left: 50%; width: 1px; }
+
+.round-timer { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: bold; text-shadow: 0 0 4px rgba(0,0,0,0.6); }
+.round-timer.low { color: rgba(255, 60, 40, 0.9); }
+.round-score { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font-size: 20px; font-weight: bold; background: rgba(0,0,0,0.35); padding: 2px 12px; border-radius: 3px; }
+.round-score .rs-ct { color: #7ab4ff; }
+.round-score .rs-t { color: #ff5a3c; }
+.round-score .rs-sep { color: #ccc; margin: 0 6px; }
+.speed { bottom: 60px !important; }
+.progress { position: absolute; left: 50%; bottom: 120px; width: 320px; transform: translateX(-50%); display: none; text-align: center; font-size: 14px; }
+.progress-bar { height: 10px; border: 1px solid rgba(255,180,40,0.8); margin-top: 4px; background: rgba(0,0,0,0.4); }
+.progress-bar i { display: block; height: 100%; background: rgba(255,180,40,0.85); width: 0; }
+.icons { position: absolute; left: 24px; bottom: 76px; display: flex; gap: 10px; font-weight: bold; font-size: 18px; }
+.icons span { display: none; padding: 1px 6px; border: 2px solid currentColor; border-radius: 3px; }
+.icons .ic-buy { color: rgba(90, 220, 90, 0.9); }
+.icons .ic-c4.site { color: rgba(60, 255, 60, 1); animation: blink 0.5s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.2; } }
+.spectating { position: absolute; bottom: 80px; left: 0; right: 0; text-align: center; font-size: 16px; color: #ddd; display: none; text-shadow: 1px 1px 0 #000; }
+
+.buymenu { position: fixed; left: 24px; top: 22%; background: rgba(0,0,0,0.6); color: rgb(255,180,40); padding: 12px 18px; min-width: 260px; font-size: 16px; line-height: 1.7; border: 1px solid rgba(255,180,40,0.35); }
+.buy-title { font-weight: bold; margin-bottom: 6px; color: #fff; }
+.buy-row .num { display: inline-block; width: 22px; }
+.buy-row .price { float: right; margin-left: 24px; color: #ddd; }
+.buy-row.cant { opacity: 0.4; }
+.buy-err { color: #ff6050; font-size: 13px; min-height: 18px; }
+
+.scoreboard { position: fixed; left: 50%; top: 12%; transform: translateX(-50%); width: min(760px, calc(100% - 32px)); background: rgba(0,0,0,0.72); color: #ddd; padding: 12px 16px; font-size: 14px; }
+.sb-title { text-align: center; font-weight: bold; color: rgb(255,180,40); margin-bottom: 8px; }
+.scoreboard table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+.scoreboard th { text-align: left; border-bottom: 1px solid #555; padding: 3px 4px; font-weight: bold; }
+.scoreboard th:nth-child(n+3), .scoreboard td:nth-child(n+3) { text-align: right; width: 70px; }
+.scoreboard td { padding: 2px 4px; }
+.scoreboard table.CT { color: #9cc4ff; }
+.scoreboard table.T { color: #ff8a70; }
+.scoreboard tr.dead { opacity: 0.5; }
+.scoreboard tr.me td { background: rgba(255,255,255,0.08); }
+.sb-score { float: right; font-size: 18px; margin-right: 12px; }
+.newgame { margin: 8px 0; border: 1px solid #555; padding: 6px 10px; }
+.newgame summary { cursor: pointer; color: rgb(255,180,40); }
+.newgame select { background: #222; color: #eee; border: 1px solid #666; }
