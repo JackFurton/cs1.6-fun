@@ -11,7 +11,9 @@ for (const q of scenarios) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.stack ?? e)));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto(`http://localhost:4998/?${q}`);
+  // Scenarios without a team would stop at the team select screen.
+  const query = /(^|&)team=/.test(q) ? q : `${q}&team=CT`;
+  await page.goto(`http://localhost:4998/?${query}`);
   await page.click('.play');
   await page.waitForTimeout(4000);
   console.log(`${errors.length ? 'FAIL' : 'ok  '} ?${q}`);

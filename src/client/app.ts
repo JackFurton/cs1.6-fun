@@ -18,8 +18,11 @@ import { BuyMenu, owns } from './buymenu';
 import { Effects } from './effects';
 import { Hud } from './hud';
 import { Input, type Action } from './input';
-import { Menu, readNewGame, toggleFullscreen, type NewGameOptions } from './menu';
-import { PlayerModel } from './playermodel';
+import { Menu, newGameParams, readNewGame, toggleFullscreen, type NewGameOptions, type TeamChoice } from './menu';
+import { renderMapImage } from './minimap';
+import { skinPreviews } from './previews';
+import { SKINS } from './skins';
+import { PlayerModel, poseOf } from './playermodel';
 import { Radar } from './radar';
 import { Renderer } from './renderer';
 import { Scoreboard } from './scoreboard';
@@ -36,7 +39,7 @@ const GO_LINES = ['Go go go!', 'Move out!', "Let's go!", 'Stick together, team.'
 export class App {
   readonly settings = loadSettings();
   readonly game: Game;
-  readonly mode: GameMode;
+  mode!: GameMode;
   readonly options: NewGameOptions;
   readonly renderer: Renderer;
   readonly input: Input;
@@ -48,8 +51,11 @@ export class App {
   readonly viewmodel = new ViewModel();
   readonly effects: Effects;
   readonly audio = new Audio();
-  readonly local: Player;
-  readonly bots: BotManager;
+  local: Player;
+  bots!: BotManager;
+  private started = false;
+  private orbit = 0;
+  private wantTeamMenu = false;
   private models = new Map<Player, PlayerModel>();
   private droppedMeshes = new Map<DroppedWeapon, THREE.Object3D>();
   private nadeMeshes = new Map<object, THREE.Object3D>();
@@ -67,6 +73,8 @@ export class App {
   private deathTime = -10;
   private shake = 0;
   private leaveGuard = false;
+  private root: HTMLElement;
+  private params: URLSearchParams;
   private buyUnlocked = false;
   private purchases: BuyItem[] = [];
   private lastPurchases: BuyItem[] = [];
@@ -97,42 +105,33 @@ export class App {
     this.scoreboard = new Scoreboard(root);
     this.radar = new Radar(root, map);
     this.buyMenu = new BuyMenu(root);
-    this.menu = new Menu(root, this.settings, this.options, mapNames);
-
-    const o = this.options;
-    const spectating = o.team === 'spec';
-    const myTeam: Team = o.team === 'T' || o.team === 'CT' ? o.team : Math.random() < 0.5 ? 'T' : 'CT';
-    const other: Team = myTeam === 'T' ? 'CT' : 'T';
-    // A spectator is a player object that never joins the game, so it's permanently dead.
-    this.local = spectating ? new Player(-1, 'Spectator', myTeam, false) : this.game.addPlayer('Player', myTeam, false);
-    if (spectating) {
-      this.local.alive = false;
-      root.classList.add('spectator');
-    }
-    const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    for (let i = 0; i < o.teammates; i++) this.game.addPlayer(names.pop()!, myTeam, true);
-    for (let i = 0; i < o.enemies; i++) this.game.addPlayer(names.pop()!, other, true);
-
-    this.mode = o.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
-    this.game.rules = this.mode;
-    this.mode.start();
-    this.bots = new BotManager(this.game, this.mode, o.difficulty);
-    this.yaw = this.local.yaw;
-
-    const give = params.get('give');
-    if (give) for (const id of give.split(',')) if (id in WEAPONS) this.game.equip(this.local, id as WeaponId);
-
-    // Debug camera placement for screenshots: ?pos=x,y,z&yaw=..&pitch=..
-    const pos = params.get('pos');
-    if (pos) {
-      const [x, y, z] = pos.split(',').map(Number);
-      this.local.move.origin.set(x, y, z);
-      this.local.prevOrigin.set(x, y, z);
-      this.yaw = Number(params.get('yaw') ?? 0);
-      this.pitch = Number(params.get('pitch') ?? 0);
-      this.local.noclip = !params.has('walk');
-    }
-    if (params.has('nomenu')) this.menu.show(false);
+    const cards = mapNames.map((name) => ({ name, image: renderMapImage(MAPS[name](), 256).canvas.toDataURL() }));
+    this.menu = new Menu(root, this.settings, this.options, cards);
+    this.menu.skins = (team) => {
+      const imgs = skinPreviews(team);
+      return SKINS[team].map((s, i) => ({ name: s.name, blurb: s.blurb, image: imgs[i] ?? '' }));
+    };
+    // Until someone joins, the local player is a placeholder watching the map.
+    this.local = new Player(-1, 'Player', 'CT', false);
+    this.local.alive = false;
+    this.root = root;
+    this.params = params;
+    root.classList.add('pregame');
+    if (this.options.team !== 'choose') this.startMatch(this.options.team, this.options.model);
+    this.menu.show(params.has('nomenu') ? false : 'main');
+    this.menu.onJoin = (team, model) => {
+      if (!this.started) {
+        this.startMatch(team, model);
+        this.menu.show(false);
+        this.menu.onPlay();
+        return;
+      }
+      // Mid-match team changes restart with the same setup.
+      location.search = newGameParams({ ...this.options, team, model }).toString();
+    };
+    this.menu.onNewGame = (o) => {
+      location.search = newGameParams(o).toString();
+    };
     this.autoFire = params.has('fire');
 
     this.buyMenu.onBuy = (item) => {
@@ -196,6 +195,11 @@ export class App {
       }
       // We released the mouse ourselves for the buy menu.
       if (this.buyMenu.isOpen) return;
+      if (this.wantTeamMenu) {
+        this.wantTeamMenu = false;
+        this.menu.show('team');
+        return;
+      }
       // Esc leaves the page focused; alt-tab doesn't. Only Esc should bring up the full menu,
       // alt-tabbing back just needs a click. Focus settles a moment after the lock is lost.
       setTimeout(() => {
@@ -216,6 +220,68 @@ export class App {
         toggleFullscreen();
       }
     });
+  }
+
+  /** Add the players, rules and bots, now that we know which side the human is on. */
+  private startMatch(choice: TeamChoice, model: number): void {
+    const o = this.options;
+    const params = this.params;
+    const spectating = choice === 'spec';
+    const myTeam: Team = choice === 'T' || choice === 'CT' ? choice : Math.random() < 0.5 ? 'T' : 'CT';
+    const other: Team = myTeam === 'T' ? 'CT' : 'T';
+    // A spectator is a player object that never joins the game, so it's permanently dead.
+    this.local = spectating ? new Player(-1, 'Spectator', myTeam, false) : this.game.addPlayer('Player', myTeam, false);
+    this.local.model = model >= 0 ? model : Math.floor(Math.random() * 4);
+    if (spectating) {
+      this.local.alive = false;
+      this.root.classList.add('spectator');
+    }
+    const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
+    for (let i = 0; i < o.teammates; i++) this.game.addPlayer(names.pop()!, myTeam, true).model = Math.floor(Math.random() * 4);
+    for (let i = 0; i < o.enemies; i++) this.game.addPlayer(names.pop()!, other, true).model = Math.floor(Math.random() * 4);
+
+    this.mode = o.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
+    this.game.rules = this.mode;
+    this.mode.start();
+    this.bots = new BotManager(this.game, this.mode, o.difficulty);
+    this.yaw = this.local.yaw;
+    this.pitch = 0;
+
+    const give = params.get('give');
+    if (give) for (const id of give.split(',')) if (id in WEAPONS) this.game.equip(this.local, id as WeaponId);
+
+    // Debug camera placement for screenshots: ?pos=x,y,z&yaw=..&pitch=..
+    const pos = params.get('pos');
+    if (pos) {
+      const [x, y, z] = pos.split(',').map(Number);
+      this.local.move.origin.set(x, y, z);
+      this.local.prevOrigin.set(x, y, z);
+      this.yaw = Number(params.get('yaw') ?? 0);
+      this.pitch = Number(params.get('pitch') ?? 0);
+      this.local.noclip = !params.has('walk');
+    }
+    this.started = true;
+    this.menu.started = true;
+    this.root.classList.remove('pregame');
+    this.input.takePresses();
+    this.last = performance.now();
+    this.acc = 0;
+  }
+
+  /** Slow circle over the map behind the menus before a match starts. */
+  private drawOrbit(dt: number): void {
+    this.orbit += dt * 0.05;
+    const s = this.game.map.spawns.CT[0].pos;
+    const t = this.game.map.spawns.T[0].pos;
+    const cx = (s.x + t.x) / 2;
+    const cz = (s.z + t.z) / 2;
+    const r = Math.max(800, Math.hypot(s.x - t.x, s.z - t.z) * 0.45);
+    const x = cx + Math.sin(this.orbit) * r;
+    const z = cz + Math.cos(this.orbit) * r;
+    const yaw = Math.atan2(x - cx, z - cz) / DEG;
+    this.renderer.setView(x, 900, z, yaw, -32);
+    this.effects.update(dt);
+    this.renderer.render();
   }
 
   private lockAgain(): void {
@@ -265,6 +331,7 @@ export class App {
     // Clamp so a background tab doesn't try to simulate minutes of ticks on return.
     const dt = Math.min(0.25, (now - this.last) / 1000);
     this.last = now;
+    if (!this.started) return this.drawOrbit(dt);
 
     // Mouse look is applied every render frame, not every tick, so it tracks the monitor's refresh rate.
     const [dx, dy] = this.input.takeMouse();
@@ -309,6 +376,11 @@ export class App {
     for (const a of i.takePresses()) {
       const slot = SLOT_KEYS[a];
       if (a === 'buy') this.toggleBuy();
+      else if (a === 'chooseteam') {
+        this.wantTeamMenu = true;
+        if (this.input.locked) document.exitPointerLock();
+        else this.menu.show('team');
+      }
       else if (a === 'attack' && !p.alive) this.nextSpecTarget();
       else if (slot) c.slot = slot;
       else if (a === 'lastinv') c.slot = p.lastSlot;
@@ -549,14 +621,14 @@ export class App {
     for (const other of this.game.players) {
       let m = this.models.get(other);
       if (!m) {
-        m = new PlayerModel(other.team);
+        m = new PlayerModel();
         this.models.set(other, m);
         this.renderer.scene.add(m.root);
       }
       const hidden = other === p && (p.alive || this.game.time - this.deathTime < 2);
       m.root.visible = !hidden;
       if (hidden) continue;
-      m.update(other, lerp(other.prevOrigin.x, other.origin.x), lerp(other.prevOrigin.y, other.origin.y), lerp(other.prevOrigin.z, other.origin.z), dt, this.game.time);
+      m.update(poseOf(other), lerp(other.prevOrigin.x, other.origin.x), lerp(other.prevOrigin.y, other.origin.y), lerp(other.prevOrigin.z, other.origin.z), dt, this.game.time);
     }
     this.syncDropped();
     this.syncBomb(dt);
