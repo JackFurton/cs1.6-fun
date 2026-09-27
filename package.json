@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "desktop": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win portable --x64 --publish never",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never"
   },
   "dependencies": {
     "three": "^0.186.1"
@@ -16,9 +19,37 @@
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/three": "^0.186.0",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vitest": "^5.0.2"
+  },
+  "main": "electron/main.cjs",
+  "description": "A Counter-Strike 1.6 style FPS against bots",
+  "author": "Jack Furton",
+  "build": {
+    "appId": "dev.furton.cs16fun",
+    "productName": "cs1.6-fun",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "portable",
+      "artifactName": "cs1.6-fun-${version}.exe"
+    },
+    "linux": {
+      "target": "AppImage",
+      "artifactName": "cs1.6-fun-${version}.AppImage",
+      "category": "Game",
+      "desktopName": "cs1.6-fun"
+    },
+    "icon": "build/icon.png"
   }
 }
