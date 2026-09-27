@@ -181,7 +181,8 @@ export class BotManager {
       known.time = now;
     } else {
       this.contacts.push({ pos: enemy.origin.clone(), time: now, enemy });
-      this.radio(by, 'Enemy spotted!');
+      // Only call out real threats, not a speck at the far end of a sightline.
+      if (enemy.origin.distanceTo(by.origin) < 2000) this.radio(by, 'Enemy spotted!');
     }
     if (by.team === 'CT') this.maybeRotate(enemy.origin);
   }

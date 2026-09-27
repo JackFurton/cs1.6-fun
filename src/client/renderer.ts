@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CollisionWorld } from '../engine/trace';
 import { DEG } from '../engine/vec';
 import type { MapData } from '../maps/types';
 import { buildMapMeshes } from './mapmesh';
@@ -22,7 +23,7 @@ export class Renderer {
   ) {
     this.gl = new THREE.WebGLRenderer({ antialias: settings.antialias, powerPreference: 'high-performance' });
     this.gl.shadowMap.enabled = settings.shadows;
-    this.gl.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.gl.shadowMap.type = THREE.PCFShadowMap;
     // The map is static, so render the shadow map once instead of every frame.
     this.gl.shadowMap.autoUpdate = false;
     this.gl.shadowMap.needsUpdate = true;
@@ -36,7 +37,7 @@ export class Renderer {
     this.sun = new THREE.DirectionalLight(map.sun.color, map.sun.intensity);
     this.scene.add(this.sun, this.sun.target);
 
-    const mapGroup = buildMapMeshes(map.brushes, this.gl.capabilities.getMaxAnisotropy());
+    const mapGroup = buildMapMeshes(map.brushes, this.gl.capabilities.getMaxAnisotropy(), new CollisionWorld(map.brushes));
     this.scene.add(mapGroup);
     this.fitSun(map, mapGroup);
 

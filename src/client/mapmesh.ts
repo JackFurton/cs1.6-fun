@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { Brush, Plane } from '../engine/brush';
 import { Vec3, cross } from '../engine/vec';
+import type { CollisionWorld } from '../engine/trace';
+import { bakeAO } from './lightbake';
 import { getTexture, textureScale } from './textures';
 
 export interface Face {
@@ -96,7 +98,7 @@ function faceShade(n: Vec3): number {
   return 0.78 + 0.1 * n.x - 0.05 * n.z;
 }
 
-export function buildMapMeshes(brushes: Brush[], anisotropy: number): THREE.Group {
+export function buildMapMeshes(brushes: Brush[], anisotropy: number, world?: CollisionWorld): THREE.Group {
   const group = new THREE.Group();
   const byTex = new Map<string, Face[]>();
   for (const b of brushes) {
@@ -110,8 +112,12 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number): THREE.Grou
     }
   }
 
+  const ao = world ? bakeAO([...byTex.values()].flat(), world) : null;
+  if (ao) console.info(`baked AO: ${ao.luxels} luxels in ${Math.round(ao.ms)}ms`);
+
   for (const [tex, faces] of byTex) {
     const pos: number[] = [];
+    const uv1: number[] = [];
     const nor: number[] = [];
     const uv: number[] = [];
     const col: number[] = [];
@@ -125,6 +131,7 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number): THREE.Grou
           pos.push(v.x, v.y, v.z);
           nor.push(f.normal.x, f.normal.y, f.normal.z);
           uv.push(uvs[k][0], uvs[k][1]);
+          if (ao) uv1.push(...ao.uv(f, v));
           col.push(shade, shade, shade);
         }
       }
@@ -134,8 +141,15 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number): THREE.Grou
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    if (ao) geo.setAttribute('uv1', new THREE.Float32BufferAttribute(uv1, 2));
     geo.computeBoundingSphere();
-    const mat = new THREE.MeshLambertMaterial({ map: getTexture(tex, anisotropy), vertexColors: true });
+    const mat = new THREE.MeshLambertMaterial({ map: getTexture(tex, anisotropy), vertexColors: true, aoMap: ao?.texture ?? null, aoMapIntensity: 1 });
+    // A plain aoMap only darkens fill light, so sunlit corners stay flat. Baked radiosity in 1.6
+    // darkened corners for all light, so let the AO also pull down the final colour a bit.
+    if (ao)
+      mat.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight *= mix(1.0, texture2D(aoMap, vAoMapUv).r, 0.7);\n#include <opaque_fragment>');
+      };
     if (tex === 'glass') {
       mat.transparent = true;
       mat.opacity = 0.35;
