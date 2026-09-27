@@ -20,7 +20,8 @@ export type Action =
   | 'lastinv'
   | 'drop'
   | 'nextweapon'
-  | 'prevweapon';
+  | 'prevweapon'
+  | 'chooseteam';
 
 const KEYS: Record<string, Action> = {
   KeyW: 'forward',
@@ -43,6 +44,7 @@ const KEYS: Record<string, Action> = {
   Digit5: 'slot5',
   KeyQ: 'lastinv',
   KeyG: 'drop',
+  KeyM: 'chooseteam',
 };
 
 /** Keyboard/mouse state. Held actions are polled per tick; presses are queued so a tap between ticks isn't lost. */

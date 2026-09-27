@@ -55,6 +55,8 @@ export class Player {
   /** 1.6 "tagging": getting shot drops this to 0.5 and it recovers 0.01 per tick while slowing you. */
   velocityModifier = 1;
   noclip = false;
+  /** Which of the team's four character models to wear. */
+  model = 0;
 
   weapons: Partial<Record<Slot, WeaponState>> = {};
   grenades: Partial<Record<WeaponId, number>> = {};

@@ -1,11 +1,9 @@
 import * as THREE from 'three';
 import type { Player } from '../game/player';
 import type { WeaponId } from '../game/weapons';
+import { skinFor } from './skins';
 import { buildWeaponModel } from './weaponmodel';
 
-const SLEEVE = { T: 0x6a5c40, CT: 0x2e3a50 };
-const SKIN = 0xb88868;
-const GLOVE = 0x1c1c1c;
 
 function flashTexture(): THREE.Texture {
   const c = document.createElement('canvas');
@@ -36,6 +34,7 @@ export class ViewModel {
   private muzzle = new THREE.Vector3();
   private id: WeaponId | null = null;
   private team: 'T' | 'CT' = 'CT';
+  private model = -1;
   private kick = 0;
   private slash = 0;
   private slashDir = 1;
@@ -67,10 +66,11 @@ export class ViewModel {
     this.camera.updateProjectionMatrix();
   }
 
-  private rebuild(id: WeaponId | null, team: 'T' | 'CT'): void {
+  private rebuild(id: WeaponId | null, team: 'T' | 'CT', model: number): void {
     this.gun.clear();
     this.id = id;
     this.team = team;
+    this.model = model;
     if (!id) return;
     const { group, muzzle } = buildWeaponModel(id);
     this.gun.add(group);
@@ -78,8 +78,10 @@ export class ViewModel {
     group.add(this.flash);
     this.flash.position.copy(muzzle);
 
-    const sleeve = new THREE.MeshLambertMaterial({ color: SLEEVE[team] });
-    const hand = new THREE.MeshLambertMaterial({ color: team === 'CT' ? GLOVE : SKIN });
+    // Sleeves and gloves match the chosen character model.
+    const skin = skinFor(team, model);
+    const sleeve = new THREE.MeshLambertMaterial({ color: skin.shirt });
+    const hand = new THREE.MeshLambertMaterial({ color: skin.gloves });
     const box = new THREE.BoxGeometry(1, 1, 1);
     const add = (m: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number, rx: number, ry = 0) => {
       const mesh = new THREE.Mesh(box, m);
@@ -117,7 +119,7 @@ export class ViewModel {
   update(p: Player, time: number, dt: number, scoped: boolean, silenced: boolean): void {
     const w = p.weapon;
     const id = w?.def.id ?? null;
-    if (id !== this.id || p.team !== this.team) this.rebuild(id, p.team);
+    if (id !== this.id || p.team !== this.team || p.model !== this.model) this.rebuild(id, p.team, p.model);
     this.holder.visible = p.alive && !!w && !scoped;
     if (!w) return;
 
