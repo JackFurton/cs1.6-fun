@@ -3,6 +3,7 @@ import { DEG } from '../engine/vec';
 import type { MapData } from '../maps/types';
 import { buildMapMeshes } from './mapmesh';
 import type { Settings } from './settings';
+import type { ViewModel } from './viewmodel';
 
 export class Renderer {
   readonly gl: THREE.WebGLRenderer;
@@ -10,6 +11,9 @@ export class Renderer {
   readonly camera: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
   private sky: THREE.Mesh;
+  /** Scope FOV (4:3 horizontal) overriding the settings FOV while zoomed. */
+  private zoomFov: number | null = null;
+  onResize: (w: number, h: number) => void = () => {};
 
   constructor(
     container: HTMLElement,
@@ -22,6 +26,7 @@ export class Renderer {
     // The map is static, so render the shadow map once instead of every frame.
     this.gl.shadowMap.autoUpdate = false;
     this.gl.shadowMap.needsUpdate = true;
+    this.gl.autoClear = false;
     container.appendChild(this.gl.domElement);
 
     this.camera = new THREE.PerspectiveCamera(this.verticalFov(), 1, 2, 16000);
@@ -62,7 +67,15 @@ export class Renderer {
 
   /** 1.6 locks 90 horizontal at 4:3; keep that vertical FOV and let widescreen see more. */
   private verticalFov(): number {
-    return 2 * Math.atan(Math.tan((this.settings.fov / 2) * DEG) * 0.75) / DEG;
+    const fov = this.zoomFov ?? this.settings.fov;
+    return 2 * Math.atan(Math.tan((fov / 2) * DEG) * 0.75) / DEG;
+  }
+
+  setZoom(fov: number | null): void {
+    if (fov === this.zoomFov) return;
+    this.zoomFov = fov;
+    this.camera.fov = this.verticalFov();
+    this.camera.updateProjectionMatrix();
   }
 
   applySettings(): void {
@@ -75,6 +88,7 @@ export class Renderer {
     this.gl.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
+    this.onResize(innerWidth, innerHeight);
   }
 
   setView(x: number, y: number, z: number, yaw: number, pitch: number, roll = 0): void {
@@ -83,8 +97,13 @@ export class Renderer {
     this.sky.position.copy(this.camera.position);
   }
 
-  render(): void {
+  render(vm?: ViewModel): void {
+    this.gl.clear();
     this.gl.render(this.scene, this.camera);
+    if (vm) {
+      this.gl.clearDepth();
+      this.gl.render(vm.scene, vm.camera);
+    }
   }
 }
 
