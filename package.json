@@ -47,9 +47,9 @@
     "linux": {
       "target": "AppImage",
       "artifactName": "cs1.6-fun-${version}.AppImage",
-      "category": "Game",
-      "desktopName": "cs1.6-fun"
+      "category": "Game"
     },
     "icon": "build/icon.png"
-  }
+  },
+  "desktopName": "cs1.6-fun.desktop"
 }
