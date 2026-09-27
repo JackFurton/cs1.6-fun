@@ -20,7 +20,7 @@ export function simulate(mapName: string, rounds: number, seed = 1, diff: Diffic
   g.rules = r;
   r.start();
   const mgr = new BotManager(g, r, diff);
-  const stats = { rounds: [] as string[], kills: 0, headshots: 0, plants: 0, defuses: 0, explosions: 0, stuckTicks: 0, aliveTicks: 0, shots: 0, grenades: 0 };
+  const stats = { rounds: [] as string[], kills: 0, headshots: 0, plants: 0, defuses: 0, explosions: 0, stuckTicks: 0, aliveTicks: 0, shots: 0, grenades: 0, pickups: 0 };
   const maxTicks = rounds * 170 * 100;
   for (let i = 0; i < maxTicks && r.round <= rounds; i++) {
     mgr.update(TICK_DT);
@@ -32,6 +32,7 @@ export function simulate(mapName: string, rounds: number, seed = 1, diff: Diffic
       } else if (e.type === 'planted') stats.plants++;
       else if (e.type === 'shot') stats.shots++;
       else if (e.type === 'grenade') stats.grenades++;
+      else if (e.type === 'pickup') stats.pickups++;
       else if (e.type === 'roundEnd') {
         stats.rounds.push(`${e.winner}:${e.reason}`);
         if (e.reason === 'defuse') stats.defuses++;
@@ -49,7 +50,7 @@ export function simulate(mapName: string, rounds: number, seed = 1, diff: Diffic
   return stats;
 }
 
-test.each(['de_dust2', 'de_cache'])('bots play full rounds on %s', (name) => {
+test.each(['de_dust2', 'de_cache', 'de_mirage', 'de_inferno'])('bots play full rounds on %s', (name) => {
   const st = simulate(name, 6);
   if (process.env.BOTSIM) throw new Error(JSON.stringify(st));
   expect(st.rounds.length).toBeGreaterThanOrEqual(5);
@@ -59,4 +60,12 @@ test.each(['de_dust2', 'de_cache'])('bots play full rounds on %s', (name) => {
   expect(st.plants).toBeGreaterThan(0);
   // Bots move: CTs hold still, but the T side should be walking most of the time.
   expect(st.stuckTicks / st.aliveTicks).toBeLessThan(0.7);
+}, 120000);
+
+test('fy_iceworld: bots pick up floor guns and fight it out', () => {
+  const st = simulate('fy_iceworld', 4);
+  if (process.env.BOTSIM) throw new Error(JSON.stringify(st));
+  expect(st.rounds.length).toBeGreaterThanOrEqual(3);
+  expect(st.rounds.every((r) => r.endsWith(':elimination') || r.endsWith(':time'))).toBe(true);
+  expect(st.pickups).toBeGreaterThan(10);
 }, 120000);

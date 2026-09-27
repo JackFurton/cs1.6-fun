@@ -1,6 +1,7 @@
 import { Vec3 } from '../engine/vec';
 import { inZone, type Team } from '../maps/types';
-import type { Game } from './game';
+import { DroppedWeapon, type Game } from './game';
+import { WeaponState } from './player';
 import type { BuyItem, GameMode } from './mode';
 import type { Player } from './player';
 import { WEAPONS } from './weapons';
@@ -139,8 +140,10 @@ export class BombDefusal implements GameMode {
         if (w.def.clip > 0) w.clip = w.def.clip;
       }
     }
+    for (const w of g.map.weaponSpawns) g.dropped.push(new DroppedWeapon(new WeaponState(WEAPONS[w.id]), w.pos.clone(), g.time));
     const ts = g.players.filter((p) => p.team === 'T');
-    if (ts.length) {
+    // No bomb on maps without sites (fy_, aim_): it's just elimination.
+    if (ts.length && g.map.bombsites.length) {
       // Prefer giving the bomb to a bot so the human isn't forced to carry it every round.
       const pool = ts.some((p) => p.isBot) && ts.length > 1 ? ts.filter((p) => p.isBot) : ts;
       pool[Math.floor(g.rand() * pool.length)].give('c4');

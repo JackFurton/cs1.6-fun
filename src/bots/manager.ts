@@ -305,9 +305,33 @@ export class BotManager {
     });
   }
 
+  /** Unarmed bots go for guns lying nearby: fy_ spawns, or a dead player's rifle. */
+  private grabWeapons(maxDist: number): void {
+    const claimed = new Set(this.bots.map((b) => (b.task.kind === 'grab' ? b.task.pos : null)).filter(Boolean));
+    for (const b of this.bots) {
+      const p = b.p;
+      if (!p.alive || p.weapons.primary || b.enemy || !['hunt', 'idle', 'hold', 'go'].includes(b.task.kind)) continue;
+      let best: Vec3 | null = null;
+      let bestD = maxDist;
+      for (const d of this.game.dropped) {
+        if (d.state.def.slot !== 'primary' || claimed.has(d.pos) || this.game.time < d.pickupAt) continue;
+        const dist = d.pos.distanceTo(p.origin);
+        if (dist < bestD) {
+          bestD = dist;
+          best = d.pos;
+        }
+      }
+      if (best) {
+        claimed.add(best);
+        b.task = { kind: 'grab', pos: best, then: b.task };
+      }
+    }
+  }
+
   private midRound(d: BombDefusal): void {
     const g = this.game;
     const now = g.time;
+    this.grabWeapons(this.sites.length ? 450 : 3000);
     this.contacts = this.contacts.filter((c) => now - c.time < 10 && c.enemy.alive);
 
     // Bomb on the ground: nearest living T bot goes to get it.

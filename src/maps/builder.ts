@@ -1,5 +1,6 @@
 import { boxBrush, rampBrush, type Brush, type BrushOpts, type RampDir } from '../engine/brush';
 import { Vec3 } from '../engine/vec';
+import type { WeaponId } from '../game/weapons';
 import type { MapData, Spawn, Team, Zone } from './types';
 
 /**
@@ -12,6 +13,7 @@ export class MapBuilder {
   readonly bombsites: Zone[] = [];
   readonly buyzones: Record<Team, Zone[]> = { T: [], CT: [] };
   readonly callouts: Zone[] = [];
+  readonly weaponSpawns: MapData['weaponSpawns'] = [];
 
   constructor(readonly name: string) {}
 
@@ -67,6 +69,12 @@ export class MapBuilder {
     return this;
   }
 
+  /** A gun lying on the floor each round, fy_ style. */
+  weapon(id: WeaponId, x: number, z: number, y = 0): this {
+    this.weaponSpawns.push({ id, pos: new Vec3(x, y + 2, z) });
+    return this;
+  }
+
   callout(name: string, x0: number, z0: number, x1: number, z1: number, y0 = -512, y1 = 1024): this {
     this.callouts.push(zone(name, x0, y0, z0, x1, y1, z1));
     return this;
@@ -80,6 +88,7 @@ export class MapBuilder {
       bombsites: this.bombsites,
       buyzones: this.buyzones,
       callouts: this.callouts,
+      weaponSpawns: this.weaponSpawns,
       ...extra,
     };
   }

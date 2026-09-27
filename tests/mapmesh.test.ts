@@ -39,6 +39,7 @@ test('spawns stand on ground and are not inside geometry', async () => {
       down.y -= 8;
       expect(world.trace(p, down, HULL_STAND.mins, HULL_STAND.maxs).fraction, `${name} spawn floor ${p.x},${p.z}`).toBeLessThan(1);
     }
-    expect(m.bombsites.length, name).toBeGreaterThanOrEqual(1);
+    if (name.startsWith('de_')) expect(m.bombsites.length, name).toBe(2);
+    else if (!m.bombsites.length) expect(m.weaponSpawns.length, name).toBeGreaterThan(0);
   }
 });
