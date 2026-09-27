@@ -95,6 +95,7 @@ export class PlayerMover {
     s.justJumped = false;
     if (s.jumpPenalty > 0) s.jumpPenalty = Math.max(0, s.jumpPenalty - dt * 1000);
 
+    this.unstick(s);
     this.duck(s, cmd, dt);
     this.categorize(s);
 
@@ -142,6 +143,23 @@ export class PlayerMover {
       s.justLanded = true;
       s.landSpeed = fallSpeed;
       s.velocity.y = 0;
+    }
+  }
+
+  /** If the hull starts inside something (spawned on a surface, overlapping a player), nudge it free. */
+  private unstick(s: MoveState): void {
+    if (this.fits(s.origin, s.ducked)) return;
+    const test = tmpA;
+    for (const [dx, dy, dz] of [
+      [0, 1, 0], [0, 2, 0], [0, 4, 0], [0, 8, 0], [0, 18, 0],
+      [4, 0, 0], [-4, 0, 0], [0, 0, 4], [0, 0, -4],
+      [8, 1, 0], [-8, 1, 0], [0, 1, 8], [0, 1, -8],
+    ]) {
+      test.set(s.origin.x + dx, s.origin.y + dy, s.origin.z + dz);
+      if (this.fits(test, s.ducked)) {
+        s.origin.copy(test);
+        return;
+      }
     }
   }
 
