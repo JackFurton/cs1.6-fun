@@ -66,6 +66,7 @@ export class App {
   private specTarget: Player | null = null;
   private deathTime = -10;
   private shake = 0;
+  private leaveGuard = false;
   private specYaw = 0;
   private specPitch = 0;
   private tr = new Trace();
@@ -78,6 +79,10 @@ export class App {
     this.renderer = new Renderer(root, this.settings, map);
     this.effects = new Effects(this.renderer.scene);
     this.smokes = new SmokeRenderer(this.renderer.scene);
+    this.renderer.gl.domElement.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.hud.error('The graphics driver reset (WebGL context lost). Reload the page to continue.');
+    });
     this.renderer.onResize = (w, h) => {
       this.viewmodel.resize(w / h);
       this.effects.setViewportHeight(h);
@@ -133,6 +138,16 @@ export class App {
     };
     this.audio.setVolume(this.settings.volume);
     this.menu.onPlay = () => {
+      // Outside fullscreen the browser won't let the page block Ctrl+W, but it will ask before leaving.
+      // Electron has no tabs to lose, and there the guard would silently block closing the window.
+      if (!this.leaveGuard && !navigator.userAgent.includes('Electron')) {
+        this.leaveGuard = true;
+        addEventListener('beforeunload', (e) => {
+          e.preventDefault();
+          // Older Chromium only shows the prompt when returnValue is set.
+          e.returnValue = '';
+        });
+      }
       this.audio.unlock();
       void this.input.lock(this.settings.rawInput);
     };
@@ -163,6 +178,16 @@ export class App {
   }
 
   private frame(): void {
+    try {
+      this.step();
+    } catch (err) {
+      // Keep the loop alive and show the error so it can be reported, instead of freezing.
+      console.error(err);
+      this.hud.error(String((err as Error)?.stack ?? err));
+    }
+  }
+
+  private step(): void {
     const now = performance.now();
     // Clamp so a background tab doesn't try to simulate minutes of ticks on return.
     const dt = Math.min(0.25, (now - this.last) / 1000);

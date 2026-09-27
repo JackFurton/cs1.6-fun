@@ -150,6 +150,18 @@ export class Hud {
     while (this.chatEntries.length > 6) this.chatEntries.shift()!.el.remove();
   }
 
+  /** Sticky error box for crashes, so there's something to screenshot. */
+  error(text: string): void {
+    let box = this.el.querySelector<HTMLDivElement>('.error-box');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'error-box';
+      this.el.appendChild(box);
+    }
+    if (box.textContent === text) return;
+    box.textContent = text;
+  }
+
   /** Center-screen message like "Terrorists Win!". */
   message(text: string, seconds = 3, color = '#fff'): void {
     this.centerMsg.textContent = text;
