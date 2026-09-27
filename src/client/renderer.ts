@@ -40,6 +40,7 @@ export class Renderer {
     this.scene.add(mapGroup);
     this.fitSun(map, mapGroup);
 
+    if (map.fog) this.scene.fog = new THREE.Fog(map.fog[0], map.fog[1], map.fog[2]);
     this.sky = makeSky(map.sky.top, map.sky.horizon);
     this.scene.add(this.sky);
 

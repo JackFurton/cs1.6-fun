@@ -95,3 +95,4 @@ canvas { display: block; }
 .newgame { margin: 8px 0; border: 1px solid #555; padding: 6px 10px; }
 .newgame summary { cursor: pointer; color: rgb(255,180,40); }
 .newgame select { background: #222; color: #eee; border: 1px solid #666; }
+.radar { position: fixed; left: 12px; top: 12px; pointer-events: none; }

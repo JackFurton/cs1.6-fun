@@ -25,6 +25,8 @@ export interface MapData {
   sky: { top: number; horizon: number };
   sun: { dir: [number, number, number]; color: number; intensity: number };
   ambient: number;
+  /** Distance fog [colour, near, far], for haze on outdoor maps. */
+  fog?: [number, number, number];
 }
 
 export function inZone(z: Zone, p: Vec3): boolean {
