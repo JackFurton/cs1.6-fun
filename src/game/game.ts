@@ -150,7 +150,7 @@ export class Game {
       const dmg = fallDamage(p.move.landSpeed);
       if (dmg > 0) this.damage(p, null, dmg, null, 'world', new Vec3(0, -1, 0), false);
       if (p.move.landSpeed > 300) {
-        this.emit({ type: 'step', player: p, land: true });
+        this.emit({ type: 'step', player: p, land: true, tex: this.groundTex(p) });
         p.lastNoise = { time: this.time, radius: 900 };
       }
     }
@@ -161,12 +161,21 @@ export class Game {
     t -= TICK_DT;
     if (p.move.onGround && speed >= 150 && !p.move.ducked) {
       if (t <= 0) {
-        this.emit({ type: 'step', player: p, land: false });
+        this.emit({ type: 'step', player: p, land: false, tex: this.groundTex(p) });
         p.lastNoise = { time: this.time, radius: 1100 };
         t = 0.35;
       }
     }
     this.stepTimers.set(p, t);
+  }
+
+  private groundTex(p: Player): string {
+    const from = p.origin.clone();
+    from.y += 1;
+    const to = p.origin.clone();
+    to.y -= 8;
+    this.world.trace(from, to, undefined, undefined, this.tr);
+    return this.tr.brush?.tex ?? '';
   }
 
   private fly(p: Player): void {

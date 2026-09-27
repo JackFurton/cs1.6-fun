@@ -15,7 +15,7 @@ export type GameEvent =
   | { type: 'empty'; player: Player }
   | { type: 'zoom'; player: Player }
   | { type: 'silencer'; player: Player; on: boolean }
-  | { type: 'step'; player: Player; land: boolean }
+  | { type: 'step'; player: Player; land: boolean; tex: string }
   | { type: 'jump'; player: Player }
   | { type: 'pickup'; player: Player; weapon: WeaponId }
   | { type: 'message'; text: string; color?: string }
