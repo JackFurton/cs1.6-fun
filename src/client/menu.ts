@@ -98,5 +98,11 @@ export class Menu {
 
 export function toggleFullscreen(): void {
   if (document.fullscreenElement) void document.exitFullscreen();
-  else void document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+  else
+    void document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => {
+      // Ctrl is duck, so Ctrl+W/Ctrl+S would otherwise close or save the tab mid-fight.
+      // Keyboard Lock (Chrome/Edge, fullscreen only) hands those combos to the page instead.
+      const kb = (navigator as Navigator & { keyboard?: { lock?: () => Promise<void> } }).keyboard;
+      return kb?.lock?.();
+    });
 }

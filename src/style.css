@@ -102,3 +102,4 @@ canvas { display: block; }
 .chat-line.CT { color: #9cc4ff; }
 .spectator .hud-bottom, .spectator .crosshair, .spectator .icons { display: none; }
 .flashbang { position: fixed; inset: 0; background: #fff; opacity: 0; z-index: 50; }
+.error-box { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); max-width: 70vw; max-height: 30vh; overflow: auto; background: rgba(120, 0, 0, 0.85); color: #fff; font: 12px monospace; padding: 8px 12px; white-space: pre-wrap; z-index: 60; }
