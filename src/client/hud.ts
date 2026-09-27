@@ -52,7 +52,7 @@ export class Hud {
       <div class="damage-flash"></div>
       <div class="flashbang"></div>
       <div class="dmgdir l"></div><div class="dmgdir r"></div><div class="dmgdir t"></div><div class="dmgdir b"></div>
-      <div class="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+      <div class="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="d"></i></div>
       <div class="fps"></div>
       <div class="speed"></div>
       <div class="feed"></div>
@@ -95,7 +95,13 @@ export class Hud {
   }
 
   applySettings(): void {
-    this.crosshair.style.setProperty('--cross', this.settings.crosshairColor);
+    const s = this.settings;
+    const c = this.crosshair.style;
+    c.setProperty('--cross', s.crosshairColor);
+    c.setProperty('--len', `${s.crosshairSize}px`);
+    c.setProperty('--thick', `${s.crosshairThickness}px`);
+    c.setProperty('--outline', s.crosshairOutline ? '0 0 0 1px rgba(0,0,0,0.8)' : 'none');
+    (this.crosshair.querySelector('.d') as HTMLElement).style.display = s.crosshairDot ? 'block' : 'none';
     this.fps.style.display = this.speed.style.display = this.settings.showFps ? 'block' : 'none';
   }
 
@@ -239,7 +245,8 @@ export class Hud {
       this.weaponName.textContent = w?.def.name ?? '';
     }
 
-    this.crosshair.style.setProperty('--gap', `${Math.round(3 + spreadPx)}px`);
+    const dynamic = this.settings.crosshairStyle === 'dynamic' ? spreadPx : 0;
+    this.crosshair.style.setProperty('--gap', `${Math.round(this.settings.crosshairGap + dynamic)}px`);
     this.crosshair.style.display = scoped || !p.alive || w?.def.zoom?.length === 2 ? 'none' : 'block';
     this.scope.style.display = scoped ? 'block' : 'none';
 

@@ -6,10 +6,11 @@ canvas { display: block; }
 .fps { position: absolute; top: 8px; right: 12px; font-size: 13px; color: #fff; text-shadow: 1px 1px 0 #000; }
 .speed { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 14px; color: rgba(255,255,255,0.6); text-shadow: 1px 1px 0 #000; }
 
-.crosshair { --gap: 4px; --len: 7px; --cross: #50ff50; position: absolute; left: 50%; top: 50%; }
-.crosshair i { position: absolute; background: var(--cross); }
-.crosshair .t, .crosshair .b { width: 2px; height: var(--len); left: -1px; }
-.crosshair .l, .crosshair .r { height: 2px; width: var(--len); top: -1px; }
+.crosshair { --gap: 3px; --len: 6px; --thick: 2px; --cross: #50ff50; --outline: none; position: absolute; left: 50%; top: 50%; }
+.crosshair i { position: absolute; background: var(--cross); box-shadow: var(--outline); }
+.crosshair .t, .crosshair .b { width: var(--thick); height: var(--len); left: calc(var(--thick) / -2); }
+.crosshair .l, .crosshair .r { height: var(--thick); width: var(--len); top: calc(var(--thick) / -2); }
+.crosshair .d { width: var(--thick); height: var(--thick); left: calc(var(--thick) / -2); top: calc(var(--thick) / -2); }
 .crosshair .t { bottom: var(--gap); }
 .crosshair .b { top: var(--gap); }
 .crosshair .l { right: var(--gap); }
@@ -103,3 +104,6 @@ canvas { display: block; }
 .spectator .hud-bottom, .spectator .crosshair, .spectator .icons { display: none; }
 .flashbang { position: fixed; inset: 0; background: #fff; opacity: 0; z-index: 50; }
 .error-box { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); max-width: 70vw; max-height: 30vh; overflow: auto; background: rgba(120, 0, 0, 0.85); color: #fff; font: 12px monospace; padding: 8px 12px; white-space: pre-wrap; z-index: 60; }
+.resume { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: rgba(0,0,0,0.3); color: #fff; cursor: pointer; text-shadow: 1px 1px 0 #000; }
+.resume b { font-size: 24px; color: rgb(255,180,40); }
+.resume span { font-size: 13px; color: #ccc; }

@@ -67,6 +67,7 @@ export class App {
   private deathTime = -10;
   private shake = 0;
   private leaveGuard = false;
+  private resume: HTMLDivElement;
   private specYaw = 0;
   private specPitch = 0;
   private tr = new Trace();
@@ -151,22 +152,54 @@ export class App {
       this.audio.unlock();
       void this.input.lock(this.settings.rawInput);
     };
+    this.input.wheelMode = this.settings.wheel;
     this.menu.onChange = (s) => {
       saveSettings(s);
+      this.input.wheelMode = s.wheel;
       this.audio.setVolume(s.volume);
       this.renderer.applySettings();
       this.hud.applySettings();
     };
+    this.resume = document.createElement('div');
+    this.resume.className = 'resume';
+    this.resume.innerHTML = '<b>Click to resume</b><span>Esc for menu</span>';
+    root.appendChild(this.resume);
+    this.resume.addEventListener('click', () => this.lockAgain());
+    this.renderer.gl.domElement.addEventListener('mousedown', () => {
+      if (!this.input.locked && this.resume.style.display === 'flex') this.lockAgain();
+    });
     this.input.onLockChange = (locked) => {
-      this.menu.show(!locked);
-      if (!locked && this.buyMenu.isOpen) this.buyMenu.close();
+      if (locked) {
+        this.menu.show(false);
+        this.resume.style.display = 'none';
+        return;
+      }
+      if (this.buyMenu.isOpen) this.buyMenu.close();
+      // Esc leaves the page focused; alt-tab doesn't. Only Esc should bring up the full menu,
+      // alt-tabbing back just needs a click. Focus settles a moment after the lock is lost.
+      setTimeout(() => {
+        if (this.input.locked) return;
+        if (document.hasFocus()) this.menu.show(true);
+        else this.resume.style.display = 'flex';
+      }, 120);
     };
+    addEventListener('keydown', (e) => {
+      if (e.code === 'Escape' && this.resume.style.display === 'flex') {
+        this.resume.style.display = 'none';
+        this.menu.show(true);
+      }
+    });
     addEventListener('keydown', (e) => {
       if (e.code === 'F11') {
         e.preventDefault();
         toggleFullscreen();
       }
     });
+  }
+
+  private lockAgain(): void {
+    this.resume.style.display = 'none';
+    void this.input.lock(this.settings.rawInput);
   }
 
   start(): void {
