@@ -28,6 +28,11 @@ export class Hud {
   private scope: HTMLDivElement;
   private damageFlash: HTMLDivElement;
   private dmgDirs: Record<'l' | 'r' | 't' | 'b', HTMLDivElement>;
+  private roundScore: HTMLDivElement;
+  private roundTimer: HTMLDivElement;
+  private progress: HTMLDivElement;
+  private icons: HTMLDivElement;
+  private spectating: HTMLDivElement;
   private feedEntries: FeedEntry[] = [];
   private centerUntil = 0;
   private frames = 0;
@@ -49,6 +54,11 @@ export class Hud {
       <div class="speed"></div>
       <div class="feed"></div>
       <div class="center-msg"></div>
+      <div class="round-score"><span class="rs-ct">0</span><span class="rs-sep">:</span><span class="rs-t">0</span></div>
+      <div class="round-timer"></div>
+      <div class="progress"><div class="progress-label"></div><div class="progress-bar"><i></i></div></div>
+      <div class="icons"><span class="ic-buy">$</span><span class="ic-c4">C4</span><span class="ic-kit">KIT</span></div>
+      <div class="spectating"></div>
       <div class="hud-bottom">
         <div class="hp"><svg viewBox="0 0 10 10" class="icon"><path d="M3.5 0h3v3.5H10v3H6.5V10h-3V6.5H0v-3h3.5z"/></svg><span class="health">100</span></div>
         <div class="ap"><svg viewBox="0 0 10 12" class="icon"><path d="M5 0l5 2v4c0 3-2.2 5.2-5 6C2.2 11.2 0 9 0 6V2z"/></svg><b class="helmet">H</b><span class="armor">0</span></div>
@@ -70,6 +80,11 @@ export class Hud {
     this.centerMsg = q('.center-msg');
     this.scope = q('.scope');
     this.damageFlash = q('.damage-flash');
+    this.roundScore = q('.round-score');
+    this.roundTimer = q('.round-timer');
+    this.progress = q('.progress');
+    this.icons = q('.icons');
+    this.spectating = q('.spectating');
     this.dmgDirs = { l: q('.dmgdir.l'), r: q('.dmgdir.r'), t: q('.dmgdir.t'), b: q('.dmgdir.b') };
     this.applySettings();
   }
@@ -77,6 +92,40 @@ export class Hud {
   applySettings(): void {
     this.crosshair.style.setProperty('--cross', this.settings.crosshairColor);
     this.fps.style.display = this.speed.style.display = this.settings.showFps ? 'block' : 'none';
+  }
+
+  setRound(timeLeft: number | null, score: { T: number; CT: number } | null): void {
+    this.roundTimer.style.display = timeLeft === null ? 'none' : 'block';
+    if (timeLeft !== null) {
+      const t = Math.ceil(timeLeft);
+      this.roundTimer.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+      this.roundTimer.classList.toggle('low', t <= 10);
+    }
+    this.roundScore.style.display = score ? 'block' : 'none';
+    if (score) {
+      this.roundScore.querySelector('.rs-ct')!.textContent = String(score.CT);
+      this.roundScore.querySelector('.rs-t')!.textContent = String(score.T);
+    }
+  }
+
+  setProgress(label: string | null, fraction: number): void {
+    this.progress.style.display = label ? 'block' : 'none';
+    if (!label) return;
+    this.progress.querySelector('.progress-label')!.textContent = label;
+    (this.progress.querySelector('.progress-bar i') as HTMLElement).style.width = `${Math.min(100, fraction * 100)}%`;
+  }
+
+  setIcons(buy: boolean, c4: 'none' | 'carry' | 'site', kit: boolean): void {
+    (this.icons.querySelector('.ic-buy') as HTMLElement).style.display = buy ? 'inline-block' : 'none';
+    const c = this.icons.querySelector('.ic-c4') as HTMLElement;
+    c.style.display = c4 === 'none' ? 'none' : 'inline-block';
+    c.classList.toggle('site', c4 === 'site');
+    (this.icons.querySelector('.ic-kit') as HTMLElement).style.display = kit ? 'inline-block' : 'none';
+  }
+
+  setSpectating(text: string | null): void {
+    this.spectating.style.display = text ? 'block' : 'none';
+    if (text) this.spectating.textContent = text;
   }
 
   /** Center-screen message like "Terrorists Win!". */

@@ -27,6 +27,7 @@ export class DroppedWeapon {
 export interface Rules {
   onKill?(killer: Player | null, victim: Player): void;
   canMove?(p: Player): boolean;
+  canDrop?(p: Player): boolean;
   tick?(): void;
 }
 
@@ -242,6 +243,7 @@ export class Game {
     // Drop the best gun, as 1.6 does on death.
     const slot: Slot | null = victim.weapons.primary ? 'primary' : victim.weapons.secondary ? 'secondary' : null;
     if (slot) this.dropSlot(victim, slot, 0);
+    if (victim.weapons.c4) this.dropSlot(victim, 'c4', 0);
     victim.weapons = { knife: victim.weapons.knife };
     victim.grenades = {};
     victim.armor = 0;
@@ -253,6 +255,7 @@ export class Game {
 
   dropActive(p: Player): void {
     if (p.active === 'knife' || p.active === 'grenade') return;
+    if (this.rules.canDrop && !this.rules.canDrop(p)) return;
     this.dropSlot(p, p.active, 250);
     const next: Slot = p.weapons.primary ? 'primary' : p.weapons.secondary ? 'secondary' : 'knife';
     p.active = 'knife';

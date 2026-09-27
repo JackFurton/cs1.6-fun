@@ -1,4 +1,5 @@
 import type { Vec3 } from '../engine/vec';
+import type { Team } from '../maps/types';
 import type { HitGroup } from './hitbox';
 import type { Player } from './player';
 import type { WeaponId } from './weapons';
@@ -19,4 +20,9 @@ export type GameEvent =
   | { type: 'jump'; player: Player }
   | { type: 'pickup'; player: Player; weapon: WeaponId }
   | { type: 'message'; text: string; color?: string }
-  | { type: 'sound'; name: string; pos: Vec3 | null };
+  | { type: 'sound'; name: string; pos: Vec3 | null }
+  | { type: 'round'; phase: 'freeze' | 'live' | 'matchover'; round: number }
+  | { type: 'roundEnd'; winner: Team; reason: 'elimination' | 'time' | 'bomb' | 'defuse' }
+  | { type: 'planted'; player: Player; site: string }
+  | { type: 'explosion'; pos: Vec3; big: boolean }
+  | { type: 'respawn'; player: Player };
