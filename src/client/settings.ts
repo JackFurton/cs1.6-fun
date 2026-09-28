@@ -7,8 +7,8 @@ export interface Settings {
   fov: number;
   volume: number;
   showFps: boolean;
-  antialias: boolean;
-  shadows: boolean;
+  /** Graphics preset: lightmap detail, antialiasing, and how far to follow high-DPI screens. */
+  quality: 'low' | 'medium' | 'high';
   /** Fraction of device pixel ratio to render at. */
   renderScale: number;
   crosshairColor: string;
@@ -30,8 +30,7 @@ const DEFAULTS: Settings = {
   fov: 90,
   volume: 0.6,
   showFps: true,
-  antialias: true,
-  shadows: true,
+  quality: 'medium',
   renderScale: 1,
   crosshairColor: '#50ff50',
   crosshairStyle: 'static',

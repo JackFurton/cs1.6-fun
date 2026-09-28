@@ -632,6 +632,7 @@ export class App {
       m.root.visible = !hidden;
       if (hidden) continue;
       m.update(poseOf(other), lerp(other.prevOrigin.x, other.origin.x), lerp(other.prevOrigin.y, other.origin.y), lerp(other.prevOrigin.z, other.origin.z), dt, this.game.time);
+      m.setLight(this.lightFor(other, dt));
     }
     this.syncDropped();
     this.syncBomb(dt);
@@ -644,6 +645,7 @@ export class App {
     const vmOwner = spectated ?? p;
     const specScoped = !!spectated && !!spectated.weapon && spectated.weapon.zoom > 0 && (spectated.weapon.def.zoom?.length ?? 0) > 1;
     this.viewmodel.update(vmOwner, this.game.time, dt, spectated ? specScoped : scoped, !!vmOwner.weapon?.silenced);
+    this.viewmodel.setLight(this.lightFor(vmOwner, dt));
     this.effects.update(dt);
     this.renderer.render(firstPerson || spectated ? this.viewmodel : undefined);
 
@@ -726,6 +728,19 @@ export class App {
     const cam = this.tr.endpos;
     this.renderer.setView(cam.x, cam.y, cam.z, this.specYaw, this.specPitch);
     return null;
+  }
+
+  private sunSmooth = new Map<Player, number>();
+
+  /** Brightness for a player model: eased toward full sun or shade as they move, so there's no pop. */
+  private lightFor(p: Player, dt: number): number {
+    const chest = p.origin.clone();
+    chest.y += 48;
+    const target = 0.55 + 0.45 * this.renderer.sunAt(chest);
+    const cur = this.sunSmooth.get(p) ?? target;
+    const next = cur + (target - cur) * Math.min(1, dt * 6);
+    this.sunSmooth.set(p, next);
+    return next;
   }
 
   private updateRoundHud(): void {

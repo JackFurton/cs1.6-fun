@@ -1,45 +1,59 @@
 import * as THREE from 'three';
-import { CollisionWorld } from '../engine/trace';
-import { DEG } from '../engine/vec';
+import { CollisionWorld, Trace } from '../engine/trace';
+import { DEG, Vec3 } from '../engine/vec';
+import { bakeKey, bakeLightmap, lightmapTexture, lightParams, loadCachedBake, saveCachedBake } from './lightbake';
 import type { MapData } from '../maps/types';
-import { buildMapMeshes } from './mapmesh';
+import { buildMapMeshes, type MapMeshes } from './mapmesh';
 import type { Settings } from './settings';
 import type { ViewModel } from './viewmodel';
+
+const QUALITY = {
+  low: { luxel: 32, maxDpr: 1, antialias: false },
+  medium: { luxel: 20, maxDpr: 1.5, antialias: true },
+  high: { luxel: 14, maxDpr: 2, antialias: true },
+} as const;
 
 export class Renderer {
   readonly gl: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
-  private sun: THREE.DirectionalLight;
   private sky: THREE.Mesh;
   /** Scope FOV (4:3 horizontal) overriding the settings FOV while zoomed. */
   private zoomFov: number | null = null;
+  private world: CollisionWorld;
+  private toSun: Vec3;
+  private tr = new Trace();
   onResize: (w: number, h: number) => void = () => {};
+  /** Resolves once the lightmap is applied (baked or from cache). */
+  readonly lightingReady: Promise<void>;
 
   constructor(
     container: HTMLElement,
     private settings: Settings,
     map: MapData,
   ) {
-    this.gl = new THREE.WebGLRenderer({ antialias: settings.antialias, powerPreference: 'high-performance' });
-    this.gl.shadowMap.enabled = settings.shadows;
-    this.gl.shadowMap.type = THREE.PCFShadowMap;
-    // The map is static, so render the shadow map once instead of every frame.
-    this.gl.shadowMap.autoUpdate = false;
-    this.gl.shadowMap.needsUpdate = true;
+    const q = QUALITY[settings.quality];
+    this.gl = new THREE.WebGLRenderer({ antialias: q.antialias, powerPreference: 'high-performance' });
     this.gl.autoClear = false;
     container.appendChild(this.gl.domElement);
 
     this.camera = new THREE.PerspectiveCamera(this.verticalFov(), 1, 2, 16000);
     this.camera.rotation.order = 'YXZ';
 
-    this.scene.add(new THREE.HemisphereLight(0xdde6f0, 0x8a7458, map.ambient));
-    this.sun = new THREE.DirectionalLight(map.sun.color, map.sun.intensity);
-    this.scene.add(this.sun, this.sun.target);
+    // Only players, guns and props use realtime lights; the map is fully baked.
+    const lp = lightParams(map);
+    this.scene.add(new THREE.HemisphereLight(lp.sky, lp.ground, map.ambient));
+    const sun = new THREE.DirectionalLight(map.sun.color, map.sun.intensity);
+    sun.position.set(-map.sun.dir[0], -map.sun.dir[1], -map.sun.dir[2]);
+    this.scene.add(sun);
+    this.toSun = lp.sunDir.clone().scale(-1);
+    this.toSun.normalize();
 
-    const mapGroup = buildMapMeshes(map.brushes, this.gl.capabilities.getMaxAnisotropy(), new CollisionWorld(map.brushes));
-    this.scene.add(mapGroup);
-    this.fitSun(map, mapGroup);
+    this.world = new CollisionWorld(map.brushes);
+    const flat = lightmapTexture(1, new Uint8Array([171, 171, 171, 255]));
+    const meshes = buildMapMeshes(map.brushes, this.gl.capabilities.getMaxAnisotropy(), q.luxel, flat);
+    this.scene.add(meshes.group);
+    this.lightingReady = this.bake(map, meshes, lp);
 
     if (map.fog) this.scene.fog = new THREE.Fog(map.fog[0], map.fog[1], map.fog[2]);
     this.sky = makeSky(map.sky.top, map.sky.horizon);
@@ -49,22 +63,26 @@ export class Renderer {
     addEventListener('resize', () => this.resize());
   }
 
-  private fitSun(map: MapData, group: THREE.Group): void {
-    const box = new THREE.Box3().setFromObject(group);
-    const center = box.getCenter(new THREE.Vector3());
-    const radius = box.getSize(new THREE.Vector3()).length() / 2;
-    const dir = new THREE.Vector3(...map.sun.dir).normalize();
-    this.sun.position.copy(center).addScaledVector(dir, -radius * 2);
-    this.sun.target.position.copy(center);
-    this.sun.castShadow = this.settings.shadows;
-    const cam = this.sun.shadow.camera;
-    cam.left = cam.bottom = -radius;
-    cam.right = cam.top = radius;
-    cam.near = radius * 0.5;
-    cam.far = radius * 3.5;
-    this.sun.shadow.mapSize.set(4096, 4096);
-    this.sun.shadow.bias = -0.0005;
-    this.sun.shadow.normalBias = 1.5;
+  /** Lightmap from the IndexedDB cache if this exact map was baked before, otherwise bake and store it. */
+  private async bake(map: MapData, meshes: MapMeshes, lp: ReturnType<typeof lightParams>): Promise<void> {
+    const { layout } = meshes;
+    const key = bakeKey(map, layout.luxel);
+    let data = await loadCachedBake(key);
+    if (!data || data.length !== layout.size * layout.size * 4) {
+      // Give the page a frame to show something first; the bake itself is synchronous.
+      await new Promise((r) => setTimeout(r, 30));
+      const t0 = performance.now();
+      data = bakeLightmap(layout, this.world, lp);
+      console.info(`baked lightmap ${layout.size}px at ${layout.luxel}u in ${Math.round(performance.now() - t0)}ms`);
+      void saveCachedBake(key, data);
+    }
+    meshes.setLightmap(lightmapTexture(layout.size, data));
+  }
+
+  /** 0..1: how much direct sun reaches a point, for lighting players and guns to match the map. */
+  sunAt(p: Vec3): number {
+    const end = p.clone().addScaled(this.toSun, 6000);
+    return this.world.trace(p, end, undefined, undefined, this.tr).fraction >= 1 ? 1 : 0;
   }
 
   /** 1.6 locks 90 horizontal at 4:3; keep that vertical FOV and let widescreen see more. */
@@ -87,7 +105,7 @@ export class Renderer {
 
   resize(): void {
     // Retina screens at full 2x cost 4x the pixels for little visible gain in a game this chunky.
-    this.gl.setPixelRatio(Math.min(devicePixelRatio, 1.5) * this.settings.renderScale);
+    this.gl.setPixelRatio(Math.min(devicePixelRatio, QUALITY[this.settings.quality].maxDpr) * this.settings.renderScale);
     this.gl.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();

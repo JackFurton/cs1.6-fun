@@ -45,6 +45,21 @@ export function poseOf(p: Player): PoseInput {
   };
 }
 
+let blobMat: THREE.MeshBasicMaterial | null = null;
+function blobMaterial(): THREE.MeshBasicMaterial {
+  if (blobMat) return blobMat;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(0,0,0,0.45)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  blobMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  return blobMat;
+}
+
 function mat(color: number): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({ color });
 }
@@ -124,6 +139,10 @@ export class PlayerModel {
   private gunHolder = new THREE.Group();
   private gunId: WeaponId | null = null;
   private skinKey = '';
+  private mats: THREE.MeshLambertMaterial[] = [];
+  private light = -1;
+  /** Soft dark disc under the feet, since nothing casts realtime shadows any more. */
+  private blob = new THREE.Mesh(new THREE.CircleGeometry(20, 20), blobMaterial());
   private phase = 0;
   private deathTime = -1;
   private deathDir = 1;
@@ -133,6 +152,9 @@ export class PlayerModel {
   constructor() {
     this.root.add(this.body);
     this.body.add(this.hips);
+    this.blob.rotation.x = -Math.PI / 2;
+    this.blob.position.y = 0.6;
+    this.root.add(this.blob);
   }
 
   private build(s: Skin): void {
@@ -178,7 +200,23 @@ export class PlayerModel {
     for (const side of [-1, 1]) part(this.torso, vest, 6, 5, 8, side * 9, 0, 0).name = side < 0 ? 'padL' : 'padR';
     this.torso.add(this.gunHolder);
     this.gunId = null;
-    this.root.traverse((o) => (o.castShadow = true));
+    // Remember each material's own colour so lighting can scale it without drifting.
+    this.mats = [];
+    this.body.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
+      if (m?.color && !this.mats.includes(m)) {
+        m.userData.base = m.color.clone();
+        this.mats.push(m);
+      }
+    });
+    this.light = -1;
+  }
+
+  /** Match the baked lighting where the player stands: dimmer in shade, as 1.6 lit models from the lightmap. */
+  setLight(k: number): void {
+    if (Math.abs(k - this.light) < 0.01) return;
+    this.light = k;
+    for (const m of this.mats) m.color.copy(m.userData.base).multiplyScalar(k);
   }
 
   update(p: PoseInput, x: number, y: number, z: number, dt: number, time: number): void {
@@ -189,6 +227,7 @@ export class PlayerModel {
     }
     this.root.position.set(x, y, z);
     this.root.rotation.y = p.yaw * DEG;
+    this.blob.visible = p.onGround && p.alive;
     const duck = p.duck;
 
     const [, hipY] = bodyRange('legs', duck);

@@ -252,8 +252,7 @@ export class Menu {
         <label><input name="rawInput" type="checkbox"> Raw mouse input</label>
         <label><input name="invertMouse" type="checkbox"> Invert mouse</label>
         <label><input name="showFps" type="checkbox"> Show FPS</label>
-        <label><input name="shadows" type="checkbox"> Shadows (reload)</label>
-        <label><input name="antialias" type="checkbox"> Antialiasing (reload)</label>
+        <label>Graphics (reload) <select name="quality"><option value="low">Low (weak laptops)</option><option value="medium">Medium</option><option value="high">High</option></select></label>
         <label>Mouse wheel <select name="wheel"><option value="downjump">Down jumps, up switches</option><option value="jump">Both jump</option><option value="weapons">Switch weapons</option></select></label>
         <label>Crosshair <select name="crosshairStyle"><option value="static">Static</option><option value="dynamic">Dynamic</option></select></label>
         <label>Crosshair colour <input name="crosshairColor" type="color"></label>

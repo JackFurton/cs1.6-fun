@@ -44,10 +44,18 @@ export class ViewModel {
   private swayY = 0;
   private lastYaw = 0;
   private lastPitch = 0;
+  private hemi = new THREE.HemisphereLight(0xffffff, 0x665544, 2.2);
+  private sunLight = new THREE.DirectionalLight(0xfff0dd, 1.4);
+
+  /** Dim the gun and arms in shade so they match the world around them. */
+  setLight(k: number): void {
+    this.hemi.intensity = 2.2 * k;
+    this.sunLight.intensity = 1.4 * k;
+  }
 
   constructor() {
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x665544, 2.2));
-    const sun = new THREE.DirectionalLight(0xfff0dd, 1.4);
+    this.scene.add(this.hemi);
+    const sun = this.sunLight;
     sun.position.set(-1, 2, 1);
     this.scene.add(sun);
     this.scene.add(this.camera);

@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import type { Brush, Plane } from '../engine/brush';
 import { Vec3, cross } from '../engine/vec';
-import type { CollisionWorld } from '../engine/trace';
-import { bakeAO } from './lightbake';
+import { layoutLightmap, type LightmapLayout } from './lightbake';
 import { getTexture, textureScale } from './textures';
 
 export interface Face {
@@ -91,14 +90,50 @@ function fitUV(v: Vec3, n: Vec3, b: Brush): [number, number] {
   return [rel.x / size.x, rel.y / size.y];
 }
 
-/** Cheap fake lighting baked into vertex colours so faces read apart without real GI. */
-function faceShade(n: Vec3): number {
-  if (n.y > 0.7) return 1;
-  if (n.y < -0.7) return 0.55;
-  return 0.78 + 0.1 * n.x - 0.05 * n.z;
+const MAP_VERT = /* glsl */ `
+  attribute vec2 uv1;
+  varying vec2 vUv;
+  varying vec2 vUv1;
+  #include <fog_pars_vertex>
+  void main() {
+    vUv = uv;
+    vUv1 = uv1;
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
+  }
+`;
+
+const MAP_FRAG = /* glsl */ `
+  uniform sampler2D map;
+  uniform sampler2D lightMap;
+  uniform float opacity;
+  varying vec2 vUv;
+  varying vec2 vUv1;
+  #include <fog_pars_fragment>
+  void main() {
+    vec4 albedo = texture2D(map, vUv);
+    // Lightmap stores sqrt(light / 2); square it back out.
+    vec3 l = texture2D(lightMap, vUv1).rgb;
+    gl_FragColor = vec4(albedo.rgb * l * l * 2.0, opacity);
+    #include <colorspace_fragment>
+    #include <fog_fragment>
+  }
+`;
+
+export interface MapMeshes {
+  group: THREE.Group;
+  layout: LightmapLayout;
+  /** Swap in a baked lightmap once it's ready. */
+  setLightmap(tex: THREE.Texture): void;
 }
 
-export function buildMapMeshes(brushes: Brush[], anisotropy: number, world?: CollisionWorld): THREE.Group {
+/**
+ * Map geometry lit entirely by a baked lightmap, the way GoldSrc drew its world: one texture
+ * lookup for the surface, one for the light, no realtime lights. Much cheaper per pixel than
+ * Lambert plus a shadow map, which is what matters on laptops.
+ */
+export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: number, flat: THREE.Texture): MapMeshes {
   const group = new THREE.Group();
   const byTex = new Map<string, Face[]>();
   for (const b of brushes) {
@@ -112,54 +147,49 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number, world?: Col
     }
   }
 
-  const ao = world ? bakeAO([...byTex.values()].flat(), world) : null;
-  if (ao) console.info(`baked AO: ${ao.luxels} luxels in ${Math.round(ao.ms)}ms`);
+  const layout = layoutLightmap([...byTex.values()].flat(), luxel);
+  const lightMap = { value: flat };
+  const fog = THREE.UniformsUtils.clone(THREE.UniformsLib.fog);
 
   for (const [tex, faces] of byTex) {
     const pos: number[] = [];
-    const uv1: number[] = [];
-    const nor: number[] = [];
     const uv: number[] = [];
-    const col: number[] = [];
+    const uv1: number[] = [];
     const scale = textureScale(tex);
     for (const f of faces) {
-      const shade = faceShade(f.normal);
       const uvs = f.verts.map((v) => (f.brush.fit ? fitUV(v, f.normal, f.brush) : faceUV(v, f.normal, scale)));
       for (let i = 1; i + 1 < f.verts.length; i++) {
         for (const k of [0, i, i + 1]) {
           const v = f.verts[k];
           pos.push(v.x, v.y, v.z);
-          nor.push(f.normal.x, f.normal.y, f.normal.z);
           uv.push(uvs[k][0], uvs[k][1]);
-          if (ao) uv1.push(...ao.uv(f, v));
-          col.push(shade, shade, shade);
+          uv1.push(...layout.uv(f, v));
         }
       }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    if (ao) geo.setAttribute('uv1', new THREE.Float32BufferAttribute(uv1, 2));
+    geo.setAttribute('uv1', new THREE.Float32BufferAttribute(uv1, 2));
     geo.computeBoundingSphere();
-    const mat = new THREE.MeshLambertMaterial({ map: getTexture(tex, anisotropy), vertexColors: true, aoMap: ao?.texture ?? null, aoMapIntensity: 1 });
-    // A plain aoMap only darkens fill light, so sunlit corners stay flat. Baked radiosity in 1.6
-    // darkened corners for all light, so let the AO also pull down the final colour a bit.
-    if (ao)
-      mat.onBeforeCompile = (shader) => {
-        shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight *= mix(1.0, texture2D(aoMap, vAoMapUv).r, 0.7);\n#include <opaque_fragment>');
-      };
-    if (tex === 'glass') {
-      mat.transparent = true;
-      mat.opacity = 0.35;
-      mat.depthWrite = false;
-    }
+    const glass = tex === 'glass';
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { ...fog, map: { value: getTexture(tex, anisotropy) }, lightMap, opacity: { value: glass ? 0.35 : 1 } },
+      vertexShader: MAP_VERT,
+      fragmentShader: MAP_FRAG,
+      fog: true,
+      transparent: glass,
+      depthWrite: !glass,
+    });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
     mesh.name = `map:${tex}`;
     group.add(mesh);
   }
-  return group;
+  return {
+    group,
+    layout,
+    setLightmap(tex) {
+      lightMap.value = tex;
+    },
+  };
 }
