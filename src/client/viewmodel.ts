@@ -11,8 +11,8 @@ function flashTexture(): THREE.Texture {
   c.width = c.height = 64;
   const ctx = c.getContext('2d')!;
   const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, 'rgba(255,255,220,1)');
-  g.addColorStop(0.3, 'rgba(255,200,80,0.9)');
+  g.addColorStop(0, 'rgba(255,240,200,0.9)');
+  g.addColorStop(0.35, 'rgba(255,180,70,0.6)');
   g.addColorStop(1, 'rgba(255,120,0,0)');
   ctx.fillStyle = g;
   ctx.beginPath();
@@ -40,11 +40,6 @@ export class ViewModel {
   private slash = 0;
   private slashDir = 1;
   private flashTime = 0;
-  private bobPhase = 0;
-  private swayX = 0;
-  private swayY = 0;
-  private lastYaw = 0;
-  private lastPitch = 0;
   private hemi = new THREE.HemisphereLight(0xffffff, 0x665544, 2.2);
   private sunLight = new THREE.DirectionalLight(0xfff0dd, 1.4);
 
@@ -141,9 +136,10 @@ export class ViewModel {
 
   onShot(): void {
     this.kick = 1;
-    this.flashTime = 0.045;
+    // About two frames at 60fps, like 1.6's muzzle flash sprite.
+    this.flashTime = 0.03;
     this.flash.rotation.z = Math.random() * Math.PI;
-    const s = 5 + Math.random() * 3;
+    const s = 3 + Math.random() * 1.5;
     this.flash.scale.set(s, s, s);
   }
 
@@ -152,7 +148,7 @@ export class ViewModel {
     this.slashDir = -this.slashDir;
   }
 
-  update(p: Player, time: number, dt: number, scoped: boolean, silenced: boolean): void {
+  update(p: Player, time: number, dt: number, scoped: boolean, silenced: boolean, bob = 0): void {
     const w = p.weapon;
     const id = w?.def.id ?? null;
     if (id !== this.id || p.team !== this.team || p.model !== this.model) this.rebuild(id, p.team, p.model);
@@ -162,26 +158,11 @@ export class ViewModel {
     const pistolLike = w.def.slot !== 'primary';
     const base = pistolLike ? new THREE.Vector3(4, -4.3, -12) : new THREE.Vector3(5, -5.2, -13);
 
-    // Bob with movement speed, as cl_bob does.
-    const speed = p.move.velocity.length2d();
-    if (p.move.onGround) this.bobPhase += dt * (speed / 250) * 11;
-    const bobAmt = Math.min(1, speed / 250) * (p.move.onGround ? 1 : 0.3);
-    // Kept small and smooth, closer to 1.6's cl_bob 0.01 than a big bounce.
-    const bobX = Math.sin(this.bobPhase) * 0.25 * bobAmt;
-    const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.18 * bobAmt;
+    // 1.6 has no mouse sway: the gun is locked to the view. The camera already carries the
+    // cl_bob height change, so relative to it the gun only slides forward by 0.4 * bob.
+    const bobZ = -bob * 0.4;
 
-    // Sway lags behind fast mouse movement.
-    let dyaw = p.yaw - this.lastYaw;
-    if (dyaw > 180) dyaw -= 360;
-    if (dyaw < -180) dyaw += 360;
-    const dpitch = p.pitch - this.lastPitch;
-    this.lastYaw = p.yaw;
-    this.lastPitch = p.pitch;
-    const k = 1 - Math.exp(-dt * 12);
-    this.swayX += (Math.max(-1.5, Math.min(1.5, dyaw * 0.15)) - this.swayX) * k;
-    this.swayY += (Math.max(-1.5, Math.min(1.5, -dpitch * 0.15)) - this.swayY) * k;
-
-    this.kick = Math.max(0, this.kick - dt * 14);
+    this.kick = Math.max(0, this.kick - dt * 16);
     this.slash = Math.max(0, this.slash - dt * 3.5);
     this.flashTime -= dt;
     this.flash.visible = this.flashTime > 0 && !silenced;
@@ -212,7 +193,7 @@ export class ViewModel {
       rotX -= s * 0.3;
     }
 
-    this.holder.position.set(base.x + bobX + this.swayX + slashX, base.y + bobY + this.swayY + dipY + this.kick * 0.4, base.z + this.kick * 1.8);
-    this.holder.rotation.set(rotX + this.kick * 0.09, 0.05 + rotY, rotZ);
+    this.holder.position.set(base.x + slashX, base.y + dipY + this.kick * 0.25, base.z + bobZ + this.kick * 1.1);
+    this.holder.rotation.set(rotX + this.kick * 0.05, 0.05 + rotY, rotZ);
   }
 }

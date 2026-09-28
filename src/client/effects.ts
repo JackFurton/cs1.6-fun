@@ -169,8 +169,9 @@ export class Effects {
     this.tracers.push({ line, life: 0.06 });
   }
 
+  /** Small flash at someone else's muzzle; never used for your own gun, which has the viewmodel flash. */
   muzzleLight(pos: THREE.Vector3): void {
-    this.glow(pos, 70, 0.05);
+    this.glow(pos, 22, 0.035);
   }
 
   private spawn(pos: THREE.Vector3, vel: THREE.Vector3, life: number, size: number, color: THREE.Color, gravity: number): void {

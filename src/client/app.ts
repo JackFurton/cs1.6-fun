@@ -17,6 +17,7 @@ import { MAPS } from '../maps';
 import type { Team } from '../maps/types';
 import { Announcer } from './announcer';
 import { Audio } from './audio';
+import { ViewBob } from './bob';
 import { BuyMenu, owns } from './buymenu';
 import { Effects } from './effects';
 import { Hud } from './hud';
@@ -81,6 +82,7 @@ export class App {
   private deathTime = -10;
   private shake = 0;
   private leaveGuard = false;
+  private bob = new ViewBob();
   private radarTime = 0;
   private root: HTMLElement;
   private params: URLSearchParams;
@@ -515,20 +517,12 @@ export class App {
     switch (e.type) {
       case 'shot': {
         this.audio.shot(e.weapon, e.silenced, this.soundPos(e.player));
-        if (e.player === this.local) {
-          this.viewmodel.onShot();
-          const cam = this.renderer.camera;
-          const from = new THREE.Vector3(6, -6, -20).applyQuaternion(cam.quaternion).add(cam.position);
-          if (Math.random() < 0.3 && !e.silenced) this.effects.tracer(from, e.end);
-          if (!e.silenced) this.effects.muzzleLight(from);
-        } else {
+        // 1.6 draws no tracers and only a small flash sprite on the gun itself.
+        if (e.player === this.local) this.viewmodel.onShot();
+        else if (!e.silenced) {
           const f = new Vec3();
           angleVectors(e.player.yaw, e.player.pitch, f);
-          const from = new THREE.Vector3(e.origin.x + f.x * 24, e.origin.y - 6, e.origin.z + f.z * 24);
-          if (!e.silenced) {
-            this.effects.tracer(from, e.end);
-            this.effects.muzzleLight(from);
-          }
+          this.effects.muzzleLight(new THREE.Vector3(e.origin.x + f.x * 30, e.origin.y - 8, e.origin.z + f.z * 30));
         }
         break;
       }
@@ -700,7 +694,8 @@ export class App {
     this.input.wheelZoomOnly = !p.alive;
     if (p.alive || this.game.time - this.deathTime < 2) {
       const vh = lerp(p.prevViewHeight, p.move.viewHeight);
-      const eyeY = p.alive ? vh : Math.max(12, vh - (this.game.time - this.deathTime) * 100);
+      const bob = p.alive ? this.bob.update(dt, p.move.velocity.length2d()) : 0;
+      const eyeY = p.alive ? vh + bob : Math.max(12, vh - (this.game.time - this.deathTime) * 100);
       this.renderer.setView(lerp(p.prevOrigin.x, p.origin.x), lerp(p.prevOrigin.y, p.origin.y) + eyeY, lerp(p.prevOrigin.z, p.origin.z), this.yaw + p.punchYaw + sx, this.pitch + p.punchPitch + sy);
       firstPerson = p.alive;
       this.hud.setSpectating(null);
@@ -738,7 +733,7 @@ export class App {
     // In first-person spectating you see their gun, not yours.
     const vmOwner = spectated ?? p;
     const specScoped = !!spectated && !!spectated.weapon && spectated.weapon.zoom > 0 && (spectated.weapon.def.zoom?.length ?? 0) > 1;
-    this.viewmodel.update(vmOwner, this.game.time, dt, spectated ? specScoped : scoped, !!vmOwner.weapon?.silenced);
+    this.viewmodel.update(vmOwner, this.game.time, dt, spectated ? specScoped : scoped, !!vmOwner.weapon?.silenced, spectated ? 0 : this.bob.value);
     this.viewmodel.setLight(this.lightFor(vmOwner, dt));
     this.effects.update(dt);
     this.renderer.render(firstPerson || spectated ? this.viewmodel : undefined);

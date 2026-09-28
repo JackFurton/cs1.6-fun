@@ -13,7 +13,10 @@ export const MOVE = {
   stepSize: 18,
   // sqrt(2 * 800 * 45): a 45 unit jump.
   jumpSpeed: 268.3281572999748,
-  duckTime: 0.2,
+  // TIME_TO_DUCK in pm_shared.c.
+  duckTime: 0.4,
+  // Friction multiplier when the ground ahead drops away (HL's edgefriction).
+  edgeFriction: 2,
   duckMultiplier: 0.333,
   walkMultiplier: 0.52,
   maxSafeFallSpeed: 580,
@@ -203,6 +206,13 @@ export class PlayerMover {
   }
 
   private jump(s: MoveState): void {
+    // CS 1.6's PM_Jump: jumping again before the last jump's penalty wore off costs speed,
+    // which is what stops bunny hops from building up on the ground.
+    if (s.jumpPenalty > 0) {
+      const ratio = (100 - s.jumpPenalty * 0.001 * 19) * 0.01;
+      s.velocity.x *= ratio;
+      s.velocity.z *= ratio;
+    }
     s.onGround = false;
     s.velocity.y = MOVE.jumpSpeed;
     s.jumpPenalty = MOVE.jumpPenaltyMs;
@@ -230,8 +240,14 @@ export class PlayerMover {
     const v = s.velocity;
     const speed = Math.hypot(v.x, v.y, v.z);
     if (speed < 0.1) return;
+    // PM_Friction: if the ground 16u ahead in the direction of travel drops away more than 34u,
+    // use extra friction, so you slow down at ledges instead of sliding off them.
+    let friction = MOVE.friction;
+    const ahead = tmpA.set(s.origin.x + (v.x / speed) * 16, s.origin.y, s.origin.z + (v.z / speed) * 16);
+    const below = tmpB.set(ahead.x, ahead.y - 34, ahead.z);
+    if (this.trace(ahead, below, s).fraction === 1) friction *= MOVE.edgeFriction;
     const control = speed < MOVE.stopSpeed ? MOVE.stopSpeed : speed;
-    const drop = control * MOVE.friction * dt;
+    const drop = control * friction * dt;
     const scale = Math.max(0, speed - drop) / speed;
     v.scale(scale);
   }

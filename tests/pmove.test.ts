@@ -15,6 +15,8 @@ function world() {
     boxBrush(v(-1000, 0, 300), v(1000, 200, 332), 'wall'),
     rampBrush(v(600, 0, -200), v(856, 128, 200), '+x', 'ramp'),
     boxBrush(v(-1200, 0, -1200), v(-1100, 56, -1100), 'crate56'),
+    // A raised platform at x 2500..3000 with a 128u drop on every side.
+    boxBrush(v(2500, 0, -3000), v(3000, 128, -2500), 'ledge'),
   ]);
 }
 
@@ -161,5 +163,50 @@ describe('pmove', () => {
   test('fall damage', () => {
     expect(fallDamage(500)).toBe(0);
     expect(fallDamage(1024)).toBeCloseTo(100);
+  });
+
+  test('ducking takes 0.4s like 1.6', () => {
+    const m = new PlayerMover(world());
+    const s = spawn(m, 0, 0, 1000);
+    run(m, s, input({ duck: true }), 30);
+    expect(s.ducked).toBe(false);
+    run(m, s, input({ duck: true }), 15);
+    expect(s.ducked).toBe(true);
+  });
+
+  test('edge friction: coasting off a ledge stops sooner than on flat ground', () => {
+    const m = new PlayerMover(world());
+    const coast = (x: number, y: number, z: number) => {
+      const s = spawn(m, x, y, z);
+      s.velocity.set(250, 0, 0);
+      let d = 0;
+      for (let i = 0; i < 40; i++) {
+        const before = s.origin.x;
+        m.move(s, input(), 250, DT);
+        d += s.origin.x - before;
+      }
+      return d;
+    };
+    const flat = coast(-3000, 0, 3000);
+    // 30u from the platform's east edge, sliding toward it.
+    const edge = coast(2970 - 16, 128, -2750);
+    expect(edge).toBeLessThan(flat);
+  });
+
+  test('chained bunny hops lose speed', () => {
+    const m = new PlayerMover(world());
+    const s = spawn(m, -3000, 0, -3000);
+    s.velocity.set(0, 0, -300);
+    const speeds: number[] = [];
+    for (let hop = 0; hop < 4; hop++) {
+      // Jump on the first ground frame each time, holding forward with no strafe.
+      let jumped = false;
+      for (let i = 0; i < 200 && !jumped; i++) {
+        m.move(s, input({ forward: 1, jump: s.onGround && i % 2 === 0 }), 250, DT);
+        jumped = s.justJumped;
+      }
+      speeds.push(s.velocity.length2d());
+    }
+    expect(speeds[3]).toBeLessThan(speeds[0]);
   });
 });
