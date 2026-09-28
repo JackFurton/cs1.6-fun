@@ -23,6 +23,8 @@ export type Task =
   | { kind: 'idle' }
   /** Walk to a spot, then hold it looking at `look`. */
   | { kind: 'hold'; spot: Vec3; look: Vec3 }
+  /** Wait at a spot outside a site until the team is ready, then do `then`. */
+  | { kind: 'stage'; spot: Vec3; look: Vec3; then: Task }
   /** Push along a waypoint to a destination. */
   | { kind: 'go'; via: Vec3 | null; dest: Vec3; then?: Task }
   | { kind: 'plant'; spot: Vec3 }
@@ -53,6 +55,9 @@ export class Bot {
   private lastSeen = -10;
   private lastSeenPos = new Vec3();
   heard: { pos: Vec3; time: number } | null = null;
+  /** How many enemies were in sight on the last perception pass. */
+  visibleCount = 0;
+  fellBack = false;
   /** When each enemy was last acquired as a fresh target (for tuning and debugging). */
   readonly acquiredAt = new Map<Player, number>();
   // Aim
@@ -97,6 +102,7 @@ export class Bot {
     this.stuckTime = 0;
     this.nade = null;
     this.usedFlash = this.usedSmoke = false;
+    this.fellBack = false;
     this.nadeCooldown = this.mgr.game.time + 3;
   }
 
@@ -159,7 +165,7 @@ export class Bot {
       if (!moveDir && !c.use && t.kind !== 'plant') {
         const goal = this.goalPos();
         if (goal) moveDir = this.follow(goal);
-        if (t.kind === 'hold' && !moveDir) lookAt = t.look;
+        if ((t.kind === 'hold' || t.kind === 'stage') && !moveDir) lookAt = t.look;
       }
       // Walk the last stretch into a hold quietly, like a player would.
       if (t.kind === 'hold' && moveDir && Math.hypot(t.spot.x - p.origin.x, t.spot.z - p.origin.z) < 250) c.walk = true;
@@ -177,6 +183,7 @@ export class Bot {
     const t = this.task;
     switch (t.kind) {
       case 'hold':
+      case 'stage':
         return Math.hypot(t.spot.x - this.p.origin.x, t.spot.z - this.p.origin.z) > 20 ? t.spot : null;
       case 'go': {
         if (t.via && Math.hypot(t.via.x - this.p.origin.x, t.via.z - this.p.origin.z) < 120) t.via = null;
@@ -222,6 +229,7 @@ export class Bot {
 
     let best: Player | null = null;
     let bestD = Infinity;
+    this.visibleCount = 0;
     for (const e of g.players) {
       if (!e.alive || e.team === p.team || e === p) continue;
       const d = e.origin.distanceTo(p.origin);
@@ -233,6 +241,7 @@ export class Bot {
       if (blind) continue;
       if (!tracked && fwd.dot(to) < cosFov && d > 120) continue;
       if (!this.canSee(eye, e)) continue;
+      this.visibleCount++;
       // Prefer whoever is closest, but stick with the current target unless someone is much closer.
       const score = d * (e === this.enemy ? 0.6 : 1);
       if (score < bestD) {
@@ -263,6 +272,8 @@ export class Bot {
       if (d > n.radius * this.skill.hearing) continue;
       const fuzz = Math.min(300, d * 0.15);
       this.heard = { pos: e.origin.clone().add(new Vec3((this.rand() - 0.5) * fuzz, 0, (this.rand() - 0.5) * fuzz)), time: g.time };
+      // Sounds count as intel for the team too (footsteps on B, shots on long).
+      this.mgr.report(p, e, this.heard.pos);
     }
     // Getting shot by someone we can't see: look their way.
     if (p.lastAttacker && g.time - p.lastDamageTime < 0.1 && p.lastAttacker !== this.enemy) {
@@ -375,7 +386,7 @@ export class Bot {
   private aimPoint(e: Player): Vec3 {
     const o = e.origin;
     const vh = e.move.viewHeight;
-    return new Vec3(o.x, o.y + (this.aimHead ? vh - 1 : vh * 0.66), o.z);
+    return new Vec3(o.x, o.y + (this.aimHead ? vh - 1 : vh * 0.6), o.z);
   }
 
   private combat(dt: number): void {

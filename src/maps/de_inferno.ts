@@ -10,7 +10,9 @@ export function deInferno() {
 
   c.room(-2200, 1600, -1400, 2400, 0, { floor: 'stone' }); // T spawn
   c.room(-1600, 800, -1200, 1600, 0, { floor: 'stone' }); // T ramp
-  c.room(-1200, -1400, -800, 1000, 0, { floor: 'stone' }); // banana
+  // Banana bends east near the top, so the bottom can't see into B.
+  c.room(-1200, -200, -800, 1000, 0, { floor: 'stone' }); // banana
+  c.room(-950, -1400, -550, -200, 0, { floor: 'stone' }); // top of banana
   c.room(-1700, -2400, -200, -1400, 0, { floor: 'stone' }); // B site
   c.room(-1400, 1400, 0, 1800, 0, { floor: 'stone' }); // second mid
   c.room(0, 400, 600, 1800, 0, { floor: 'stone' }); // mid
@@ -40,8 +42,8 @@ export function deInferno() {
   m.box(-600, 0, -2150, -300, 40, -2050, 'wood');
   m.crate(-1500, -1600, 64).crate(-1436, -1600, 64).crate(-1468, -1600, 48, 64);
   // Banana cover: car and sandbags.
-  m.box(-1150, 0, -200, -1000, 56, 100, 'metal');
-  m.box(-900, 0, -900, -820, 40, -700, 'sand');
+  m.box(-1150, 0, 100, -1000, 56, 400, 'metal');
+  m.box(-700, 0, -900, -620, 40, -700, 'sand');
   // A site: truck-style block, boxes.
   m.box(1300, 0, 700, 1500, 88, 1000, 'container_red');
   m.crate(1800, 400, 64).crate(1800, 464, 64);
@@ -58,7 +60,7 @@ export function deInferno() {
 
   m.callout('T Spawn', -2200, 1600, -1400, 2400)
     .callout('T Ramp', -1600, 800, -1200, 1600)
-    .callout('Banana', -1200, -1400, -800, 1000)
+    .callout('Banana', -1200, -1400, -550, 1000)
     .callout('B Site', -1700, -2400, -200, -1400)
     .callout('Second Mid', -1400, 1400, 0, 1800)
     .callout('Mid', 0, 400, 600, 1800)

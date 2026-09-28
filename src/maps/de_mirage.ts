@@ -20,7 +20,9 @@ export function deMirage() {
   c.room(-600, 300, -200, 900, 0, indoor); // jungle / connector
   c.room(700, -200, 1900, 300, 0, { floor: 'sand' }); // top mid
   c.room(-600, -300, 700, 300, 0, { floor: 'stone' }); // mid
-  c.room(-1400, -400, -600, 200, 0, indoor); // window room
+  // Window: a raised sniper room at the end of mid, walled off from CT spawn, stairs down toward CT.
+  c.room(-1300, -400, -600, 200, 96, { ceiling: 240, ceilingTex: 'wood', floor: 'wood' }); // window room
+  c.room(-1300, 200, -1100, 600, 0, { floor: 'stone' }); // window stairs
   c.room(-200, -1100, 200, -300, 0, { floor: 'stone' }); // short
   c.room(1900, -1400, 2500, -300, 0, { floor: 'sand' }); // T to apartments
   c.room(300, -1500, 1900, -1200, 64, indoor); // apartments
@@ -37,6 +39,7 @@ export function deMirage() {
   m.ramp(800, 0, 1700, 1200, 64, 2000, '+x', 'stone'); // balcony up into palace
   m.stairs(2100, 1500, 2500, 1700, 0, 64, '+z', 'stone'); // up into palace from outside
   m.stairs(1900, -1500, 2100, -1200, 0, 64, '-x', 'wood'); // up into apartments
+  m.stairs(-1300, 200, -1100, 600, 0, 96, '-z', 'wood'); // window down to CT
   m.ramp(0, 0, -1500, 300, 64, -1200, '+x', 'stone'); // down out of apartments
 
   // A site cover: triple, firebox, sandwich, stairs area.
