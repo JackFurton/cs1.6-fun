@@ -1,3 +1,4 @@
+import { DEFAULT_BINDS, type Binds } from './input';
 export interface Settings {
   /** Same scale as CS 1.6 `sensitivity` (m_yaw 0.022), so your 1.6 value carries over. */
   sensitivity: number;
@@ -20,8 +21,7 @@ export interface Settings {
   crosshairThickness: number;
   crosshairDot: boolean;
   crosshairOutline: boolean;
-  /** What the mouse wheel does. */
-  wheel: 'downjump' | 'jump' | 'weapons';
+  binds: Binds;
 }
 
 const DEFAULTS: Settings = {
@@ -41,7 +41,7 @@ const DEFAULTS: Settings = {
   crosshairThickness: 2,
   crosshairDot: false,
   crosshairOutline: true,
-  wheel: 'downjump',
+  binds: DEFAULT_BINDS,
 };
 
 const KEY = 'cs16fun.settings';
@@ -49,11 +49,23 @@ const KEY = 'cs16fun.settings';
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Settings> & { wheel?: string };
+      const s: Settings = { ...DEFAULTS, ...saved, binds: structuredClone({ ...DEFAULT_BINDS, ...(saved.binds ?? {}) }) };
+      // Older saves had a single wheel option instead of bindings.
+      if (!saved.binds && saved.wheel) {
+        const strip = (a: string[]) => a.filter((c) => c !== 'WheelUp' && c !== 'WheelDown');
+        s.binds = { ...s.binds, jump: strip(s.binds.jump), nextweapon: strip(s.binds.nextweapon), prevweapon: strip(s.binds.prevweapon) };
+        if (saved.wheel === 'jump') s.binds.jump.push('WheelUp', 'WheelDown');
+        else if (saved.wheel === 'weapons') s.binds.nextweapon.push('WheelDown'), s.binds.prevweapon.push('WheelUp');
+        else s.binds.jump.push('WheelDown'), s.binds.prevweapon.push('WheelUp');
+      }
+      return s;
+    }
   } catch {
     // Private windows and blocked storage fall back to defaults.
   }
-  return { ...DEFAULTS };
+  return { ...DEFAULTS, binds: structuredClone(DEFAULT_BINDS) };
 }
 
 export function saveSettings(s: Settings): void {

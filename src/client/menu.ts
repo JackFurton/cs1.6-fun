@@ -1,3 +1,4 @@
+import { ACTION_LABELS, DEFAULT_BINDS, codeLabel, type Action, type Input } from './input';
 import type { Settings } from './settings';
 
 export type TeamChoice = 'T' | 'CT' | 'auto' | 'spec';
@@ -44,7 +45,7 @@ export interface SkinCard {
   image: string;
 }
 
-type Screen = 'main' | 'newgame' | 'options' | 'team' | 'character';
+type Screen = 'main' | 'newgame' | 'options' | 'keys' | 'team' | 'character';
 
 const DIFFS = [
   ['easy', 'Easy'],
@@ -63,6 +64,9 @@ export class Menu {
   private pendingTeam: 'T' | 'CT' = 'CT';
   private draft: NewGameOptions;
   onPlay: () => void = () => {};
+  /** Set by the app so the bindings screen can grab the next key press. */
+  input: Input | null = null;
+  private binding: { action: Action; slot: number } | null = null;
   onChange: (s: Settings) => void = () => {};
   onJoin: (team: TeamChoice, model: number) => void = () => {};
   onNewGame: (o: NewGameOptions) => void = () => {};
@@ -87,7 +91,8 @@ export class Menu {
     addEventListener('keydown', (e) => {
       if (!this.screen) return;
       const m = /^Digit(\d)$/.exec(e.code);
-      if (e.code === 'Escape' && (this.screen === 'newgame' || this.screen === 'options')) this.show('main');
+      if (e.code === 'Escape' && !this.binding && (this.screen === 'newgame' || this.screen === 'options')) this.show('main');
+      if (e.code === 'Escape' && !this.binding && this.screen === 'keys') this.show('options');
       if (!m) return;
       const n = Number(m[1]);
       if (this.screen === 'team') {
@@ -161,6 +166,16 @@ export class Menu {
       case 'fullscreen':
         toggleFullscreen();
         break;
+      case 'bind': {
+        const [action, slot] = val.split(':');
+        this.startBinding(action as Action, Number(slot));
+        break;
+      }
+      case 'resetbinds':
+        this.settings.binds = structuredClone(DEFAULT_BINDS);
+        this.onChange(this.settings);
+        this.render();
+        break;
     }
   }
 
@@ -176,6 +191,8 @@ export class Menu {
         return this.renderTeam();
       case 'character':
         return this.renderCharacter();
+      case 'keys':
+        return this.renderKeys();
     }
   }
 
@@ -240,6 +257,55 @@ export class Menu {
       <div class="row end"><button data-act="screen" data-val="team">Back</button><button data-act="model" data-val="-1"><kbd>5</kbd> Auto-select</button></div>`;
   }
 
+  /** Waits for the next key, mouse button or wheel notch and binds it, 1.6 style: a key does one thing. */
+  private startBinding(action: Action, slot: number): void {
+    if (!this.input) return;
+    this.binding = { action, slot };
+    this.render();
+    this.input.capture = (code) => {
+      this.input!.capture = null;
+      const b = this.binding!;
+      this.binding = null;
+      if (code === 'Escape') return this.render();
+      const binds = structuredClone(this.settings.binds);
+      const list = [...(binds[b.action] ?? [])];
+      if (code === 'Backspace' || code === 'Delete') list.splice(b.slot, 1);
+      else {
+        for (const a of Object.keys(binds) as Action[]) binds[a] = binds[a].filter((c) => c !== code);
+        const cur = binds[b.action];
+        cur[Math.min(b.slot, cur.length)] = code;
+        binds[b.action] = cur;
+        this.settings.binds = binds;
+        this.onChange(this.settings);
+        return this.render();
+      }
+      binds[b.action] = list;
+      this.settings.binds = binds;
+      this.onChange(this.settings);
+      this.render();
+    };
+  }
+
+  private renderKeys(): void {
+    const rows = (Object.keys(ACTION_LABELS) as Action[])
+      .map((a) => {
+        const codes = this.settings.binds[a] ?? [];
+        const slot = (i: number) => {
+          const waiting = this.binding?.action === a && this.binding.slot === i;
+          const label = waiting ? 'Press a key…' : codes[i] ? codeLabel(codes[i]) : '—';
+          return `<button class="bind${waiting ? ' waiting' : ''}" data-act="bind" data-val="${a}:${i}">${label}</button>`;
+        };
+        return `<div class="bind-row"><span>${ACTION_LABELS[a]}</span>${slot(0)}${slot(1)}</div>`;
+      })
+      .join('');
+    this.box.className = 'menu-box wide';
+    this.box.innerHTML = `
+      <h2>Key Bindings</h2>
+      <p class="note">Click a slot, then press a key, mouse button or wheel notch. Esc cancels, Backspace clears. A key can only do one thing, like 1.6's bind.</p>
+      <div class="binds">${rows}</div>
+      <div class="row end"><button data-act="resetbinds">Reset to defaults</button><button data-act="screen" data-val="options">Back</button></div>`;
+  }
+
   private renderOptions(): void {
     this.box.className = 'menu-box';
     this.box.innerHTML = `
@@ -254,7 +320,6 @@ export class Menu {
         <label><input name="invertMouse" type="checkbox"> Invert mouse</label>
         <label><input name="showFps" type="checkbox"> Show FPS</label>
         <label>Graphics (reload) <select name="quality"><option value="low">Low (weak laptops)</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-        <label>Mouse wheel <select name="wheel"><option value="downjump">Down jumps, up switches</option><option value="jump">Both jump</option><option value="weapons">Switch weapons</option></select></label>
         <label>Crosshair <select name="crosshairStyle"><option value="static">Static</option><option value="dynamic">Dynamic</option></select></label>
         <label>Crosshair colour <input name="crosshairColor" type="color"></label>
         <label>Crosshair size <input name="crosshairSize" type="range" min="2" max="16" step="1"></label>
@@ -263,7 +328,7 @@ export class Menu {
         <label><input name="crosshairDot" type="checkbox"> Centre dot</label>
         <label><input name="crosshairOutline" type="checkbox"> Outline</label>
       </div>
-      <div class="row end"><button data-act="fullscreen">Toggle fullscreen (F11 / Alt+Enter)</button><button data-act="screen" data-val="main">Back</button></div>`;
+      <div class="row end"><button data-act="screen" data-val="keys">Key bindings</button><button data-act="fullscreen">Toggle fullscreen (F11 / Alt+Enter)</button><button data-act="screen" data-val="main">Back</button></div>`;
     for (const input of this.box.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.settings input, .settings select')) {
       const key = input.name as keyof Settings;
       if (input instanceof HTMLInputElement && input.type === 'checkbox') input.checked = Boolean(this.settings[key]);

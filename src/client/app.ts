@@ -195,10 +195,11 @@ export class App {
       this.audio.unlock();
       void this.input.lock(this.settings.rawInput);
     };
-    this.input.wheelMode = this.settings.wheel;
+    this.input.setBinds(this.settings.binds);
+    this.menu.input = this.input;
     this.menu.onChange = (s) => {
       saveSettings(s);
-      this.input.wheelMode = s.wheel;
+      this.input.setBinds(s.binds);
       this.audio.setVolume(s.volume);
       this.announcer.setPack(s.announcer);
       this.renderer.applySettings();
