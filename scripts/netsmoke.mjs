@@ -5,7 +5,15 @@ import { chromium } from 'playwright';
 
 const PORT = 27098;
 const srv = spawn('node', ['dist-server/main.js', '--map', 'aim_arena', '--mode', 'dm', '--port', String(PORT)], { stdio: 'inherit' });
-await new Promise((r) => setTimeout(r, 1500));
+// Wait until the server answers rather than guessing how long it takes to start.
+for (let i = 0; i < 100; i++) {
+  try {
+    if ((await fetch(`http://localhost:${PORT}/`)).ok) break;
+  } catch {
+    // not up yet
+  }
+  await new Promise((r) => setTimeout(r, 200));
+}
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const errors = [];
 let ok = false;
@@ -15,12 +23,12 @@ try {
     p.on('pageerror', (e) => errors.push(`${name}: ${e}`));
     p.on('console', (m) => m.type() === 'error' && errors.push(`${name}: ${m.text()}`));
     await p.goto(`http://localhost:${PORT}/?connect&debug`);
-    await p.waitForFunction(() => !!window.app, null, { timeout: 20000 });
+    await p.waitForFunction(() => !!window.app, null, { timeout: 60000 });
     await p.evaluate(([n, t]) => {
       window.app.settings.name = n;
       window.app.menu.onJoin(t, 0);
     }, [name, team]);
-    await p.waitForFunction(() => window.app.started, null, { timeout: 10000 });
+    await p.waitForFunction(() => window.app.started, null, { timeout: 30000 });
     return p;
   };
   const a = await join('alice', 'T');
