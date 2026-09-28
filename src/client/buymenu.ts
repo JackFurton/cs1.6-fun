@@ -125,7 +125,8 @@ export class BuyMenu {
   private cats: Category[] = [];
   onBuy: (item: BuyItem) => string | null = () => null;
   onRebuy: () => string | null = () => null;
-  onClose: () => void = () => {};
+  /** `esc` when closed with Escape: that key can't re-grab the mouse, so the app asks for a click instead. */
+  onClose: (via: 'esc' | 'other') => void = () => {};
   /** Actual price for this player right now (armor depends on what you already wear). */
   priceOf: (item: BuyItem, listed: number) => number = (_i, listed) => listed;
   /** Seconds of buy time left, or null for unlimited (deathmatch). */
@@ -154,7 +155,8 @@ export class BuyMenu {
         let handled = true;
         if (m) this.choose(Number(m[2]));
         else if (e.code === 'KeyR') this.rebuy();
-        else if (e.code === 'Escape' || e.code === 'KeyB') this.close();
+        else if (e.code === 'Escape') this.close('esc');
+        else if (e.code === 'KeyB') this.close();
         else handled = false;
         if (handled) {
           e.stopPropagation();
@@ -179,11 +181,11 @@ export class BuyMenu {
     this.render();
   }
 
-  close(): void {
+  close(via: 'esc' | 'other' = 'other'): void {
     if (!this.open_) return;
     this.open_ = false;
     this.el.style.display = 'none';
-    this.onClose();
+    this.onClose(via);
   }
 
   private choose(n: number): void {

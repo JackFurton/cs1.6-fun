@@ -204,8 +204,13 @@ function altFire(g: Game, p: Player, w: WeaponState): void {
   switch (def.alt) {
     case 'zoom':
       if (w.reloading) return;
+      // Mid-bolt, Mouse2 picks the scope level you come back to rather than fighting the auto-rezoom.
+      if (w.resumeZoom) {
+        w.resumeZoom = (w.resumeZoom + 1) % ((def.zoom?.length ?? 0) + 1);
+        g.emit({ type: 'zoom', player: p });
+        break;
+      }
       w.zoom = (w.zoom + 1) % ((def.zoom?.length ?? 0) + 1);
-      w.resumeZoom = 0;
       p.nextAttack = Math.max(p.nextAttack, g.time + 0.3);
       g.emit({ type: 'zoom', player: p });
       break;

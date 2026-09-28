@@ -48,8 +48,8 @@ export class Effects {
   private points: THREE.Points;
   private tracers: { line: THREE.Line; life: number }[] = [];
   private tracerMat = new THREE.LineBasicMaterial({ color: 0xffe8a0, transparent: true, opacity: 0.7 });
-  // Fixed pool: adding and removing lights would force three.js to recompile every material.
-  private flashes: { light: THREE.PointLight; life: number }[] = [];
+  // Glow sprites instead of point lights: a light in the scene costs every lit pixel, even at zero intensity.
+  private flashes: { sprite: THREE.Sprite; life: number; maxLife: number; size: number }[] = [];
   private nextFlash = 0;
 
   constructor(private scene: THREE.Scene) {
@@ -93,10 +93,12 @@ export class Effects {
     this.points.frustumCulled = false;
     scene.add(this.points);
 
-    for (let i = 0; i < 2; i++) {
-      const light = new THREE.PointLight(0xffc060, 0, 300, 2);
-      scene.add(light);
-      this.flashes.push({ light, life: 0 });
+    const glow = new THREE.SpriteMaterial({ map: puffTexture(), color: 0xffc060, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false });
+    for (let i = 0; i < 6; i++) {
+      const sprite = new THREE.Sprite(glow.clone());
+      sprite.visible = false;
+      scene.add(sprite);
+      this.flashes.push({ sprite, life: 0, maxLife: 1, size: 1 });
     }
   }
 
@@ -149,10 +151,15 @@ export class Effects {
       const color = fire ? new THREE.Color(1, 0.55 + Math.random() * 0.3, 0.15) : new THREE.Color(0.25, 0.24, 0.22);
       this.spawn(new THREE.Vector3(pos.x, pos.y + 16, pos.z), v, fire ? 0.6 + Math.random() * 0.4 : 1.5 + Math.random() * 1.5, fire ? (big ? 60 : 30) : big ? 90 : 45, color, fire ? 50 : -20);
     }
+    this.glow(new THREE.Vector3(pos.x, pos.y + 48, pos.z), big ? 900 : 450, big ? 0.45 : 0.25);
+  }
+
+  private glow(pos: THREE.Vector3, size: number, life: number): void {
     const f = this.flashes[this.nextFlash];
     this.nextFlash = (this.nextFlash + 1) % this.flashes.length;
-    f.light.position.set(pos.x, pos.y + 64, pos.z);
-    f.life = big ? 0.4 : 0.2;
+    f.sprite.position.copy(pos);
+    f.life = f.maxLife = life;
+    f.size = size;
   }
 
   tracer(from: THREE.Vector3, to: Vec3): void {
@@ -163,10 +170,7 @@ export class Effects {
   }
 
   muzzleLight(pos: THREE.Vector3): void {
-    const f = this.flashes[this.nextFlash];
-    this.nextFlash = (this.nextFlash + 1) % this.flashes.length;
-    f.light.position.copy(pos);
-    f.life = 0.05;
+    this.glow(pos, 70, 0.05);
   }
 
   private spawn(pos: THREE.Vector3, vel: THREE.Vector3, life: number, size: number, color: THREE.Color, gravity: number): void {
@@ -211,8 +215,11 @@ export class Effects {
     }
     for (const f of this.flashes) {
       f.life = Math.max(0, f.life - dt);
-      f.light.intensity = f.life > 0 ? (f.life > 0.06 ? 400000 * f.life : 3000) : 0;
-      f.light.distance = f.life > 0.06 ? 3000 : 300;
+      f.sprite.visible = f.life > 0;
+      if (!f.sprite.visible) continue;
+      const t = f.life / f.maxLife;
+      f.sprite.scale.setScalar(f.size * (1.2 - t * 0.4));
+      f.sprite.material.opacity = t;
     }
   }
 }

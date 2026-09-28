@@ -86,7 +86,8 @@ export class Renderer {
   }
 
   resize(): void {
-    this.gl.setPixelRatio(devicePixelRatio * this.settings.renderScale);
+    // Retina screens at full 2x cost 4x the pixels for little visible gain in a game this chunky.
+    this.gl.setPixelRatio(Math.min(devicePixelRatio, 1.5) * this.settings.renderScale);
     this.gl.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();

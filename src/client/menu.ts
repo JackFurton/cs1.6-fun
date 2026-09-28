@@ -190,6 +190,7 @@ export class Menu {
       <button data-act="screen" data-val="newgame">New Game</button>
       ${this.started ? '<button data-act="screen" data-val="team">Change Team <kbd>M</kbd></button>' : ''}
       <button data-act="screen" data-val="options">Options</button>
+      <button data-act="fullscreen">Fullscreen <kbd>Alt+Enter</kbd></button>
       <p class="keys">WASD move · Space / wheel down jump · Ctrl duck · Shift walk · Mouse1 fire · Mouse2 alt fire · R reload · B buy (R in menu: rebuy) · 1-5 weapons · Q last weapon · G drop · E defuse · Tab scores · M team · Esc menu</p>`;
   }
 
@@ -262,7 +263,7 @@ export class Menu {
         <label><input name="crosshairDot" type="checkbox"> Centre dot</label>
         <label><input name="crosshairOutline" type="checkbox"> Outline</label>
       </div>
-      <div class="row end"><button data-act="fullscreen">Toggle fullscreen (F11)</button><button data-act="screen" data-val="main">Back</button></div>`;
+      <div class="row end"><button data-act="fullscreen">Toggle fullscreen (F11 / Alt+Enter)</button><button data-act="screen" data-val="main">Back</button></div>`;
     for (const input of this.box.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.settings input, .settings select')) {
       const key = input.name as keyof Settings;
       if (input instanceof HTMLInputElement && input.type === 'checkbox') input.checked = Boolean(this.settings[key]);
