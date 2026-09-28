@@ -8,6 +8,15 @@ interface FeedEntry {
   until: number;
 }
 
+/** Only touch the DOM when a value changes: rewriting text every frame costs a style/layout pass. */
+function txt(el: HTMLElement, v: string): void {
+  if (el.textContent !== v) el.textContent = v;
+}
+
+function sty(el: HTMLElement, prop: 'display' | 'opacity', v: string): void {
+  if (el.style[prop] !== v) el.style[prop] = v;
+}
+
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
@@ -222,38 +231,39 @@ export class Hud {
     this.frames++;
     const now = performance.now();
     if (now - this.lastFpsTime >= 500) {
-      this.fps.textContent = `${Math.round((this.frames * 1000) / (now - this.lastFpsTime))} fps`;
+      txt(this.fps, `${Math.round((this.frames * 1000) / (now - this.lastFpsTime))} fps`);
       this.frames = 0;
       this.lastFpsTime = now;
     }
-    this.speed.textContent = `${Math.round(p.move.velocity.length2d())}`;
-    this.health.textContent = String(Math.max(0, p.health));
+    txt(this.speed, `${Math.round(p.move.velocity.length2d())}`);
+    txt(this.health, String(Math.max(0, p.health)));
     this.health.parentElement!.classList.toggle('low', p.health <= 25);
-    this.armor.textContent = String(p.armor);
-    this.helmet.style.display = p.helmet ? 'inline' : 'none';
-    this.money.textContent = `$${p.money}`;
+    txt(this.armor, String(p.armor));
+    sty(this.helmet, 'display', p.helmet ? 'inline' : 'none');
+    txt(this.money, `$${p.money}`);
 
     const w = p.weapon;
     if (w && w.def.clip > 0) {
-      this.ammo.textContent = `${w.clip} | ${w.reserve}`;
-      this.weaponName.textContent = w.def.name + (w.silenced ? ' (S)' : '') + (w.burst ? ' (burst)' : '');
+      txt(this.ammo, `${w.clip} | ${w.reserve}`);
+      txt(this.weaponName, w.def.name + (w.silenced ? ' (S)' : '') + (w.burst ? ' (burst)' : ''));
     } else if (w?.def.slot === 'grenade') {
-      this.ammo.textContent = String(p.grenades[w.def.id] ?? 0);
-      this.weaponName.textContent = w.def.name;
+      txt(this.ammo, String(p.grenades[w.def.id] ?? 0));
+      txt(this.weaponName, w.def.name);
     } else {
-      this.ammo.textContent = '';
-      this.weaponName.textContent = w?.def.name ?? '';
+      txt(this.ammo, '');
+      txt(this.weaponName, w?.def.name ?? '');
     }
 
     const dynamic = this.settings.crosshairStyle === 'dynamic' ? spreadPx : 0;
-    this.crosshair.style.setProperty('--gap', `${Math.round(this.settings.crosshairGap + dynamic)}px`);
-    this.crosshair.style.display = scoped || !p.alive || w?.def.zoom?.length === 2 ? 'none' : 'block';
-    this.scope.style.display = scoped ? 'block' : 'none';
+    const gap = `${Math.round(this.settings.crosshairGap + dynamic)}px`;
+    if (this.crosshair.style.getPropertyValue('--gap') !== gap) this.crosshair.style.setProperty('--gap', gap);
+    sty(this.crosshair, 'display', scoped || !p.alive || w?.def.zoom?.length === 2 ? 'none' : 'block');
+    sty(this.scope, 'display', scoped ? 'block' : 'none');
 
     this.hurtLevel = Math.max(0, this.hurtLevel - dt * 1.5);
-    this.damageFlash.style.opacity = String(this.hurtLevel * 0.6);
+    sty(this.damageFlash, 'opacity', String(this.hurtLevel * 0.6));
 
-    if (now > this.centerUntil) this.centerMsg.style.opacity = '0';
+    if (now > this.centerUntil) sty(this.centerMsg, 'opacity', '0');
     while (this.feedEntries.length && this.feedEntries[0].until < now) this.feedEntries.shift()!.el.remove();
     while (this.chatEntries.length && this.chatEntries[0].until < now) this.chatEntries.shift()!.el.remove();
   }

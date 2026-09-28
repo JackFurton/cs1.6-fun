@@ -73,6 +73,7 @@ export class App {
   private deathTime = -10;
   private shake = 0;
   private leaveGuard = false;
+  private radarTime = 0;
   private root: HTMLElement;
   private params: URLSearchParams;
   private buyUnlocked = false;
@@ -154,12 +155,14 @@ export class App {
       const end = d.phase === 'freeze' ? d.phaseEnd + d.cfg.buyTime : d.roundStart + d.cfg.buyTime;
       return end - this.game.time;
     };
-    this.buyMenu.onClose = () => {
-      // The menu freed the mouse for clicking; take it back. Closing is a key press or click,
-      // which counts as the user gesture pointer lock needs.
+    this.buyMenu.onClose = (via) => {
+      // The menu freed the mouse for clicking; take it back. B or a click count as the user gesture
+      // pointer lock needs, but Escape doesn't, and a lock grabbed mid-Escape is dropped straight away,
+      // which used to bounce you into the main menu. So after Escape, just ask for a click.
       if (!this.buyUnlocked) return;
       this.buyUnlocked = false;
-      this.lockAgain();
+      if (via === 'esc') this.resume.style.display = 'flex';
+      else this.lockAgain();
     };
     this.audio.setVolume(this.settings.volume);
     this.menu.onPlay = () => {
@@ -220,7 +223,8 @@ export class App {
       }
     });
     addEventListener('keydown', (e) => {
-      if (e.code === 'F11') {
+      // F11 is taken by macOS for Mission Control, so Alt+Enter (the classic game shortcut) works too.
+      if (e.code === 'F11' || (e.code === 'Enter' && e.altKey)) {
         e.preventDefault();
         toggleFullscreen();
       }
@@ -656,7 +660,12 @@ export class App {
     this.updateRoundHud();
     const d = this.defusal;
     const bomb = p.team === 'T' && d ? (d.bomb?.pos ?? d.looseC4) : null;
-    this.radar.draw(new Vec3(cam.position.x, 0, cam.position.z), firstPerson ? this.yaw : this.specYaw, p, this.game.players, bomb);
+    // 30Hz is plenty for a radar and saves a large rotated canvas draw on the other frames.
+    this.radarTime += dt;
+    if (this.radarTime >= 1 / 30) {
+      this.radarTime = 0;
+      this.radar.draw(new Vec3(cam.position.x, 0, cam.position.z), firstPerson ? this.yaw : this.specYaw, p, this.game.players, bomb);
+    }
     const title = `${this.options.map}  ·  ${this.defusal ? `Round ${this.defusal.round}` : 'Deathmatch'}`;
     this.scoreboard.show(this.input.isDown('scores') || this.defusal?.phase === 'matchover', this.game.players, this.defusal?.score ?? null, title, p);
   }
