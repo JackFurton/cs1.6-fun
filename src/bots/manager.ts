@@ -50,6 +50,7 @@ export class BotManager {
   private rotated = new Set<string>();
   private nextStrategy = 0;
   private retakeIssued = false;
+  private retakeStart = 0;
   private radioAt = new Map<Team, number>();
   /** Site the Terrorists are going for this round. */
   targetSite: SitePlan | null = null;
@@ -93,14 +94,21 @@ export class BotManager {
       const approach = new Set<number>();
       for (const r of tRoutes) for (let i = Math.floor(r.length * 0.45); i < r.length; i++) for (const e of [r[i].id, ...r[i].edges.map((x) => x.to)]) approach.add(e);
       const plan: SitePlan = { zone, nodes, center, tRoutes, tEntrances: entrances(tRoutes, zone), ctEntrances: entrances(ctRoutes, zone), ctHolds: [], tHolds: [], approach };
-      plan.ctHolds = this.holdSpots(plan, plan.tEntrances);
+      // Points far down the T approaches: a CT hold that can be seen from there loses long AK duels.
+      const far: Vec3[] = [];
+      for (const r of tRoutes)
+        r.forEach((n, i) => {
+          const d = n.pos.distanceTo(center.pos);
+          if (i % 4 === 0 && d > 1300 && d < 3200) far.push(n.pos.clone().add(new Vec3(0, EYE, 0)));
+        });
+      plan.ctHolds = this.holdSpots(plan, plan.tEntrances, far);
       plan.tHolds = this.holdSpots(plan, plan.ctEntrances);
       this.sites.push(plan);
     }
   }
 
   /** Spots in and around a site that can see at least one entrance from a safe-ish distance. */
-  private holdSpots(site: SitePlan, watch: Vec3[]): Spot[] {
+  private holdSpots(site: SitePlan, watch: Vec3[], avoid: Vec3[] = []): Spot[] {
     const z = site.zone;
     const margin = 350;
     const near = this.nav.nodes.filter((n) => n.pos.x > z.min.x - margin && n.pos.x < z.max.x + margin && n.pos.z > z.min.z - margin && n.pos.z < z.max.z + margin);
@@ -121,7 +129,13 @@ export class BotManager {
       }
     }
     if (!out.length) out.push({ pos: site.center.pos.clone(), look: watch[0]?.clone() ?? site.center.pos.clone().add(new Vec3(0, EYE, 0)), entrance: 0 });
-    return out;
+    if (!avoid.length) return out;
+    // Prefer close angles that only open up once the enemy is nearly on site.
+    const safe = out.filter((s) => {
+      const eye = s.pos.clone().add(new Vec3(0, EYE, 0));
+      return s.look.distanceTo(eye) < 1300 && !avoid.some((a) => w.visible(eye, a));
+    });
+    return safe.length >= 3 ? safe : out;
   }
 
   // ---------------------------------------------------------------- queries used by bots
@@ -172,19 +186,20 @@ export class BotManager {
     return this.nav.nodes[Math.floor(this.game.rand() * this.nav.nodes.length)];
   }
 
-  /** A bot saw an enemy: share it with the team. */
-  report(by: Player, enemy: Player): void {
+  /** A bot saw (or heard, at a fuzzed position) an enemy: share it with the team. */
+  report(by: Player, enemy: Player, heardAt?: Vec3): void {
     const now = this.game.time;
+    const pos = heardAt ?? enemy.origin;
     const known = this.contacts.find((c) => c.enemy === enemy);
     if (known) {
-      known.pos.copy(enemy.origin);
+      known.pos.copy(pos);
       known.time = now;
     } else {
-      this.contacts.push({ pos: enemy.origin.clone(), time: now, enemy });
+      this.contacts.push({ pos: pos.clone(), time: now, enemy });
       // Only call out real threats, not a speck at the far end of a sightline.
-      if (enemy.origin.distanceTo(by.origin) < 2000) this.radio(by, 'Enemy spotted!');
+      if (!heardAt && enemy.origin.distanceTo(by.origin) < 2000) this.radio(by, 'Enemy spotted!');
     }
-    if (by.team === 'CT') this.maybeRotate(enemy.origin);
+    if (by.team === 'CT') this.maybeRotate(pos);
   }
 
   /** Recent enemy position a teammate reported close to this bot, to look toward. */
@@ -362,11 +377,45 @@ export class BotManager {
       const cts = this.bots.filter((b) => b.p.team === 'CT' && b.p.alive);
       // Kit holder (or whoever's closest) defuses, the rest clear the site.
       const defuser = cts.find((b) => b.p.defuser) ?? cts.sort((a, b) => a.p.origin.distanceTo(bomb) - b.p.origin.distanceTo(bomb))[0];
-      for (const b of cts) b.task = b === defuser ? { kind: 'defuse', bomb } : { kind: 'hunt', dest: pick(site.nodes, g.rand).pos.clone() };
+      // Group up outside the site first: one CT at a time walking into a post-plant is a free kill.
+      this.retakeStart = g.time;
+      for (const b of cts) {
+        const then: Task = b === defuser ? { kind: 'defuse', bomb } : { kind: 'hunt', dest: pick(site.nodes, g.rand).pos.clone() };
+        const inside = inZone(padZone(site.zone, 200), b.p.origin);
+        const entry = site.ctEntrances.length ? site.ctEntrances.reduce((a, e) => (a.distanceTo(b.p.origin) < e.distanceTo(b.p.origin) ? a : e)) : null;
+        const node = entry ? this.nav.nearest(entry.clone().add(new Vec3(0, -EYE, 0))) : null;
+        b.task = inside || !node ? then : { kind: 'stage', spot: node.pos.clone(), look: bomb.clone().add(new Vec3(0, EYE, 0)), then };
+      }
       for (const b of this.bots) {
         if (b.p.team !== 'T' || !b.p.alive) continue;
         const h = pick(site.tHolds, g.rand);
         b.task = { kind: 'go', via: null, dest: h.pos.clone(), then: { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() } };
+      }
+    }
+    // A lone CT who sees two or more coming backs off toward the CT side and plays for the retake,
+    // instead of dying 1v3 on a site nobody else is holding.
+    if (!d.bomb) {
+      for (const b of this.bots) {
+        if (b.p.team !== 'CT' || !b.p.alive || b.fellBack || b.task.kind !== 'hold' || b.visibleCount < 2) continue;
+        const mates = this.bots.filter((o) => o !== b && o.p.alive && o.p.team === 'CT' && o.p.origin.distanceTo(b.p.origin) < 700).length;
+        if (mates >= b.visibleCount - 1) continue;
+        const site = this.sites.find((s) => inZone(padZone(s.zone, 600), b.p.origin));
+        if (!site || !site.ctEntrances.length) continue;
+        const back = site.ctEntrances.reduce((a, e) => (a.distanceTo(b.p.origin) < e.distanceTo(b.p.origin) ? a : e));
+        const node = this.nav.nearest(back.clone().add(new Vec3(0, -EYE, 0)));
+        if (!node) continue;
+        b.fellBack = true;
+        b.task = { kind: 'go', via: null, dest: node.pos.clone(), then: { kind: 'hold', spot: node.pos.clone(), look: site.center.pos.clone().add(new Vec3(0, EYE, 0)) } };
+        this.radio(b.p, 'Falling back!');
+      }
+    }
+    // Release the retake once everyone's staged, or the clock forces it.
+    if (d.bomb && !d.bomb.defused) {
+      const staged = this.bots.filter((b) => b.p.team === 'CT' && b.p.alive && b.task.kind === 'stage');
+      if (staged.length) {
+        const ready = staged.every((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 200);
+        const late = this.bombTimeLeft() < 18 || g.time - this.retakeStart > 12;
+        if (ready || late) for (const b of staged) if (b.task.kind === 'stage') b.task = b.task.then;
       }
     }
     // Once the Ts are all dead, every CT goes for the bomb.
@@ -397,7 +446,8 @@ export class BotManager {
         const n = this.nav.nearest(c.pos);
         return n && (s.approach.has(n.id) || inZone(padZone(s.zone, 300), c.pos));
       }).length;
-      if (seen < 2) continue;
+      // One confirmed enemy on the approach is enough to start moving; waiting for two was too late.
+      if (seen < 1) continue;
       this.rotated.add(s.zone.name);
       const others = this.bots.filter((b) => b.p.team === 'CT' && b.p.alive && b.task.kind === 'hold' && !inZone(padZone(s.zone, 900), b.task.spot));
       // Keep one player home on the other site if there's more than one there.

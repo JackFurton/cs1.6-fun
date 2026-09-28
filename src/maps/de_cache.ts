@@ -17,13 +17,16 @@ export function deCache() {
   c.room(500, -2000, 1100, -1500, 0, { floor: 'asphalt' }); // highway
   c.room(1100, -1700, 1500, -900, 0, { floor: 'asphalt' }); // CT to A
   c.room(-700, -700, -200, -250, 0, indoor); // garage
-  c.room(-1900, -250, 900, 250, 0, { floor: 'asphalt' }); // mid
-  c.room(900, -900, 1800, 900, 0, { floor: 'concrete_floor' }); // CT spawn
+  // Mid ends in a wall; CT mid turns north into spawn so the spawns never see each other.
+  c.room(-1900, -250, 600, 250, 0, { floor: 'asphalt' }); // mid
+  c.room(600, -700, 900, 250, 0, { floor: 'asphalt' }); // CT mid
+  c.room(900, -1300, 1800, -500, 0, { floor: 'concrete_floor' }); // CT spawn
+  c.room(1400, -500, 1800, 900, 0, { floor: 'concrete_floor' }); // CT hallway to B
   c.room(200, 250, 500, 800, 0, { ...indoor, floor: 'tile' }); // checkers
   c.room(-1900, 900, -800, 1300, 0, { floor: 'asphalt' }); // B main
   c.room(-800, 800, 300, 2000, 0, { floor: 'concrete_floor' }); // B site
   c.room(300, 900, 700, 1300, 0, indoor); // sunroom
-  c.room(700, 900, 1300, 1300, 0, { floor: 'asphalt' }); // CT to B
+  c.room(700, 900, 1800, 1300, 0, { floor: 'asphalt' }); // CT to B
 
   c.wallTex(-2600, -2200, -700, 2200, 'concrete', 288);
   c.wallTex(-700, -2200, 500, -700, 'brick_red', 320);
@@ -54,11 +57,11 @@ export function deCache() {
   m.box(-800, 112, 1800, -400, 144, 1820, 'metal');
   m.crate(150, 950, 48, 0, 'crate_dark');
   // CT spawn cover.
-  m.box(1250, 0, -200, 1400, 96, 200, 'container_blue');
+  m.box(1250, 0, -1000, 1400, 96, -800, 'container_blue');
 
   for (let i = 0; i < 5; i++) m.spawn('T', -2350, -320 + i * 160, -90);
-  for (let i = 0; i < 5; i++) m.spawn('CT', 1600, -320 + i * 160, 90);
-  m.buyzone('T', -2500, -600, -1900, 600).buyzone('CT', 900, -900, 1800, 900);
+  for (let i = 0; i < 5; i++) m.spawn('CT', 1600, -1200 + i * 150, 90);
+  m.buyzone('T', -2500, -600, -1900, 600).buyzone('CT', 900, -1300, 1800, -500);
   m.bombsite('A', -550, -1950, 350, -1000);
   m.bombsite('B', -750, 1000, 250, 1950);
 
@@ -69,7 +72,8 @@ export function deCache() {
     .callout('Garage', -700, -700, -200, -250)
     .callout('Mid', -1900, -250, 900, 250)
     .callout('White Box', -550, -120, -350, 120)
-    .callout('CT Spawn', 900, -900, 1800, 900)
+    .callout('CT Spawn', 900, -1300, 1800, -500)
+    .callout('CT Mid', 600, -700, 900, 250)
     .callout('Checkers', 200, 250, 500, 800)
     .callout('B Main', -1900, 900, -800, 1300)
     .callout('B Site', -800, 800, 300, 2000)
