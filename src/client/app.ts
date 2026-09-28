@@ -143,6 +143,7 @@ export class App {
       return err;
     };
     this.buyMenu.onRebuy = () => this.rebuy();
+    this.buyMenu.priceOf = (item, listed) => (this.defusal && (item === 'vest' || item === 'vesthelm') ? (this.defusal.armorCost(this.local, item) ?? listed) : listed);
     this.buyMenu.timeLeft = () => {
       const d = this.defusal;
       if (!d) return null;

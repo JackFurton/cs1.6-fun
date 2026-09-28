@@ -6,16 +6,16 @@ import { rayHitBody } from '../src/game/hitbox';
 import { Vec3, yawTo } from '../src/engine/vec';
 import { WEAPONS } from '../src/game/weapons';
 
-function testMap(wallThickness = 8) {
+function testMap(wallThickness = 8, tex = 'wood') {
   const m = new MapBuilder('test');
   m.box(-2048, -16, -2048, 2048, 0, 2048, 'sand');
-  if (wallThickness > 0) m.box(-200, 0, -400, 200, 128, -400 - wallThickness, 'wood', { penetration: 1 });
+  if (wallThickness > 0) m.box(-200, 0, -400, 200, 128, -400 - wallThickness, tex);
   for (let i = 0; i < 5; i++) m.spawn('CT', i * 40, 0, 0).spawn('T', i * 40, -800, 180);
   return m.build({ sky: { top: 0, horizon: 0 }, sun: { dir: [0, -1, 0], color: 0, intensity: 1 }, ambient: 1 });
 }
 
-function setup(wall = 8) {
-  const g = new Game(testMap(wall));
+function setup(wall = 8, tex = 'wood') {
+  const g = new Game(testMap(wall, tex));
   g.rand = () => 0.5;
   const ct = g.addPlayer('ct', 'CT', false);
   const t = g.addPlayer('t', 'T', true);
@@ -98,19 +98,26 @@ describe('shooting', () => {
     expect(g.dropped.some((d) => d.state.def.id === 'glock')).toBe(true);
   });
 
-  test('AK wallbangs thin wood, pistol through thick wood does not', () => {
-    for (const [wall, weapon, expectHit] of [
-      [8, 'ak47', true],
-      [64, 'glock', false],
+  test('wallbangs depend on gun, thickness and material', () => {
+    for (const [wall, tex, weapon, expectHit] of [
+      [12, 'door', 'ak47', true],
+      [12, 'door', 'glock', true],
+      [64, 'wood', 'glock', false],
+      [16, 'plaster', 'ak47', true],
+      [40, 'plaster', 'ak47', false],
+      [16, 'stone', 'ak47', false],
+      [20, 'plaster', 'awp', true],
     ] as const) {
-      const { g, ct, t } = setup(wall);
+      const { g, ct, t } = setup(wall, tex);
       g.equip(ct, weapon);
+      // A freshly drawn semi-auto needs the trigger released once.
+      g.tick();
       g.time = 5;
       ct.nextAttack = 0;
       aimAt(g, ct, t.origin.clone().add(new Vec3(0, 50, 0)));
       ct.cmd.attack = true;
       g.tick();
-      expect(t.health < 100, `${weapon} through ${wall}`).toBe(expectHit);
+      expect(t.health < 100, `${weapon} through ${wall}u ${tex}`).toBe(expectHit);
     }
   });
 

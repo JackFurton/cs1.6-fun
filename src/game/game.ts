@@ -29,6 +29,7 @@ export interface Rules {
   onKill?(killer: Player | null, victim: Player): void;
   canMove?(p: Player): boolean;
   canDrop?(p: Player): boolean;
+  canAttack?(p: Player): boolean;
   tick?(): void;
 }
 

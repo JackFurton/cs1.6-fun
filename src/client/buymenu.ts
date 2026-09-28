@@ -126,6 +126,8 @@ export class BuyMenu {
   onBuy: (item: BuyItem) => string | null = () => null;
   onRebuy: () => string | null = () => null;
   onClose: () => void = () => {};
+  /** Actual price for this player right now (armor depends on what you already wear). */
+  priceOf: (item: BuyItem, listed: number) => number = (_i, listed) => listed;
   /** Seconds of buy time left, or null for unlimited (deathmatch). */
   timeLeft: () => number | null = () => null;
   private open_ = false;
@@ -243,11 +245,12 @@ export class BuyMenu {
       const items = col.cats.flatMap((ci) =>
         this.cats[ci].items.map((e, ii) => {
           const own = owns(p, e.item);
-          const cant = !own && e.price > p.money;
+          const price = own ? e.price : this.priceOf(e.item, e.price);
+          const cant = !own && price > p.money;
           const hot = `${ci + 1}${this.cats[ci].items.length > 1 ? `-${ii + 1}` : ''}`;
           const active = this.category === ci ? ' active' : '';
           const pic = img.get(e.item) ? `<img src="${img.get(e.item)}" alt="">` : '';
-          return `<button class="buy-item${own ? ' owned' : ''}${cant ? ' cant' : ''}${active}" data-item="${e.item}"><span class="hot">${hot}</span>${pic}<span class="name">${e.label}</span><span class="price">${own ? 'owned' : `$${e.price}`}</span></button>`;
+          return `<button class="buy-item${own ? ' owned' : ''}${cant ? ' cant' : ''}${active}" data-item="${e.item}"><span class="hot">${hot}</span>${pic}<span class="name">${e.label}</span><span class="price">${own ? 'owned' : `$${price}`}</span></button>`;
         }),
       );
       return `<div class="buy-col"><div class="buy-col-title">${col.title}</div>${items.join('')}</div>`;

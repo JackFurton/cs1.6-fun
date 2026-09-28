@@ -174,3 +174,35 @@ describe('bomb defusal', () => {
     expect(t1.weapons.primary).toBeUndefined();
   });
 });
+
+describe('1.6 details', () => {
+  test('armor prices follow 1.6', () => {
+    const { r } = setup();
+    const p = r['g'].players[0];
+    p.armor = 0;
+    p.helmet = false;
+    expect(r.armorCost(p, 'vesthelm')).toBe(1000);
+    p.armor = 100;
+    expect(r.armorCost(p, 'vesthelm')).toBe(350);
+    p.armor = 60;
+    p.helmet = true;
+    expect(r.armorCost(p, 'vesthelm')).toBe(650);
+    expect(r.armorCost(p, 'vest')).toBe(650);
+    p.armor = 100;
+    expect(r.armorCost(p, 'vesthelm')).toBeNull();
+  });
+
+  test('nobody can fire during freeze time', () => {
+    const { g, r } = setup();
+    const p = team(g, 'CT')[0];
+    g.equip(p, 'ak47');
+    p.nextAttack = 0;
+    p.cmd.attack = true;
+    run(g, 0.5);
+    expect(r.phase).toBe('freeze');
+    expect(p.weapon!.clip).toBe(30);
+    run(g, 1);
+    expect(r.phase).toBe('live');
+    expect(p.weapon!.clip).toBeLessThan(30);
+  });
+});

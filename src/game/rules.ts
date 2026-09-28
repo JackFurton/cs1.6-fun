@@ -108,6 +108,18 @@ export class BombDefusal implements GameMode {
     return this.g.map.buyzones[p.team].some((z) => inZone(z, p.origin));
   }
 
+  canAttack(): boolean {
+    return this.phase !== 'freeze';
+  }
+
+  /** 1.6 armor prices: helmet alone is $350 on full kevlar; with a helmet, refilling kevlar is $650. */
+  armorCost(p: Player, item: 'vest' | 'vesthelm'): number | null {
+    if (item === 'vest') return p.armor >= 100 ? null : 650;
+    if (p.armor >= 100 && p.helmet) return null;
+    if (p.helmet) return 650;
+    return p.armor >= 100 ? 350 : 1000;
+  }
+
   canMove(p: Player): boolean {
     if (this.phase === 'freeze') return false;
     if (this.planter === p || this.bomb?.defuser === p) return false;
@@ -357,12 +369,14 @@ export class BombDefusal implements GameMode {
     if (!this.canBuy(p)) return 'You can only buy in the buy zone during buy time';
     const g = this.g;
     switch (item) {
-      case 'vest':
-        if (p.armor >= 100) return 'You already have Kevlar';
-        return this.pay(p, 650, () => (p.armor = 100));
+      case 'vest': {
+        const cost = this.armorCost(p, 'vest');
+        if (cost === null) return 'You already have Kevlar';
+        return this.pay(p, cost, () => (p.armor = 100));
+      }
       case 'vesthelm': {
-        if (p.armor >= 100 && p.helmet) return 'You already have Kevlar and a helmet';
-        const cost = p.armor >= 100 ? 350 : 1000;
+        const cost = this.armorCost(p, 'vesthelm');
+        if (cost === null) return 'You already have Kevlar and a helmet';
         return this.pay(p, cost, () => {
           p.armor = 100;
           p.helmet = true;
