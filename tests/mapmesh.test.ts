@@ -43,3 +43,28 @@ test('spawns stand on ground and are not inside geometry', async () => {
     else if (!m.bombsites.length) expect(m.weaponSpawns.length, name).toBeGreaterThan(0);
   }
 });
+
+test('octagonal prism renders 8 sides plus caps and blocks a box trace', async () => {
+  const { prismBrush } = await import('../src/engine/brush');
+  const { CollisionWorld } = await import('../src/engine/trace');
+  const oct: [number, number][] = Array.from({ length: 8 }, (_, i) => [Math.cos((i / 8) * Math.PI * 2) * 32, Math.sin((i / 8) * Math.PI * 2) * 32]);
+  const b = prismBrush(oct, 0, 64, 'metal');
+  expect(brushFaces(b)).toHaveLength(10);
+  const w = new CollisionWorld([b]);
+  const mins = new Vec3(-16, 0, -16);
+  const maxs = new Vec3(16, 72, 16);
+  // Coming in along a diagonal, stop at the 45 degree face: centre ends ~32+16*sqrt2 from the axis, not at the bounding box corner.
+  const t = w.trace(new Vec3(200, 1, 200), new Vec3(0, 1, 0), mins, maxs);
+  expect(t.fraction).toBeLessThan(1);
+  const r = Math.hypot(t.endpos.x, t.endpos.z);
+  expect(r).toBeGreaterThan(40);
+  expect(r).toBeLessThan(60);
+});
+
+test('detail brushes render but never collide', async () => {
+  const { CollisionWorld } = await import('../src/engine/trace');
+  const d = boxBrush(new Vec3(-50, 0, -50), new Vec3(50, 100, 50), 'trim', { detail: true });
+  const w = new CollisionWorld([d]);
+  expect(w.trace(new Vec3(-100, 10, 0), new Vec3(100, 10, 0)).fraction).toBe(1);
+  expect(new CollisionWorld([d], { includeDetail: true }).trace(new Vec3(-100, 10, 0), new Vec3(100, 10, 0)).fraction).toBeLessThan(1);
+});

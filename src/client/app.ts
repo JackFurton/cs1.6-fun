@@ -285,6 +285,8 @@ export class App {
       this.local.prevOrigin.set(x, y, z);
       this.yaw = Number(params.get('yaw') ?? 0);
       this.pitch = Number(params.get('pitch') ?? 0);
+      // The round-start event snaps the view to the player's yaw, so point the player too.
+      this.local.yaw = this.yaw;
       this.local.noclip = !params.has('walk');
     }
     this.started = true;

@@ -132,8 +132,11 @@ export class BrushGrid {
 
 export class CollisionWorld {
   readonly grid: BrushGrid;
-  constructor(readonly brushes: Brush[]) {
-    this.grid = new BrushGrid(brushes);
+  readonly brushes: Brush[];
+  /** Detail brushes are left out unless asked for (the light baker wants them to cast shadows). */
+  constructor(brushes: Brush[], opts: { includeDetail?: boolean } = {}) {
+    this.brushes = opts.includeDetail ? brushes : brushes.filter((b) => !b.detail);
+    this.grid = new BrushGrid(this.brushes);
   }
 
   /** Sweep an AABB (mins/maxs relative to origin) from start to end against the world. */

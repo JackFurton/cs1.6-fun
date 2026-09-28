@@ -133,8 +133,8 @@ export interface MapMeshes {
  * lookup for the surface, one for the light, no realtime lights. Much cheaper per pixel than
  * Lambert plus a shadow map, which is what matters on laptops.
  */
-export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: number, flat: THREE.Texture): MapMeshes {
-  const group = new THREE.Group();
+/** Every visible map face grouped by texture. Deterministic, so the bake worker gets the same layout. */
+export function collectFaces(brushes: Brush[]): Map<string, Face[]> {
   const byTex = new Map<string, Face[]>();
   for (const b of brushes) {
     if (b.clip) continue;
@@ -146,7 +146,16 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: numb
       list.push(f);
     }
   }
+  return byTex;
+}
 
+export function mapLayout(brushes: Brush[], luxel: number): LightmapLayout {
+  return layoutLightmap([...collectFaces(brushes).values()].flat(), luxel);
+}
+
+export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: number, flat: THREE.Texture): MapMeshes {
+  const group = new THREE.Group();
+  const byTex = collectFaces(brushes);
   const layout = layoutLightmap([...byTex.values()].flat(), luxel);
   const lightMap = { value: flat };
   const fog = THREE.UniformsUtils.clone(THREE.UniformsLib.fog);
