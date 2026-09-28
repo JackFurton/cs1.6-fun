@@ -50,7 +50,7 @@ export function simulate(mapName: string, rounds: number, seed = 1, diff: Diffic
   return stats;
 }
 
-test.each(['de_dust2', 'de_cache', 'de_mirage', 'de_inferno'])('bots play full rounds on %s', (name) => {
+test.each(['de_dust2', 'de_cache', 'de_mirage', 'de_inferno', 'de_harbor'])('bots play full rounds on %s', (name) => {
   const st = simulate(name, 6);
   if (process.env.BOTSIM) throw new Error(JSON.stringify(st));
   expect(st.rounds.length).toBeGreaterThanOrEqual(5);
