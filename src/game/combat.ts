@@ -1,4 +1,5 @@
 import type { Brush } from '../engine/brush';
+import { penetrationFactor } from '../engine/materials';
 import { Trace } from '../engine/trace';
 import { Vec3, angleVectors } from '../engine/vec';
 import type { Game } from './game';
@@ -122,7 +123,8 @@ export function updateWeapon(g: Game, p: Player, dt: number): void {
   decayPunch(p, dt);
   const w = p.weapon;
   if (!w) return;
-  const c = p.cmd;
+  // Freeze time: the trigger does nothing, but release handling below still runs.
+  const c = g.rules.canAttack && !g.rules.canAttack(p) ? { ...p.cmd, attack: false, attack2: false } : p.cmd;
   const def = w.def;
 
   if (w.reloading && g.time >= w.reloadEnd) finishReload(g, p, w);
@@ -308,7 +310,7 @@ function fireBullet(g: Game, shooter: Player, start: Vec3, dir: Vec3, def: Weapo
       const t = (pl.dist - pl.normal.dot(end)) / dn;
       if (t < exit) exit = t;
     }
-    const factor = hitBrush.penetration ?? 0.5;
+    const factor = hitBrush.penetration ?? penetrationFactor(hitBrush.tex);
     if (!isFinite(exit) || exit > pen * factor) return end;
     pen -= exit / factor;
     damage *= factor >= 1 ? 0.75 : 0.5;
