@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Player } from '../game/player';
 import type { WeaponId } from '../game/weapons';
 import { skinFor } from './skins';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { buildWeaponModel } from './weaponmodel';
 
 
@@ -69,6 +70,40 @@ export class ViewModel {
     this.flash.visible = false;
   }
 
+  /** One arm: a gloved hand at `grip`, wrist, then a tapered sleeve up to `elbow` and beyond. */
+  private arm(glove: THREE.Material, sleeve: THREE.Material, cuff: THREE.Material, grip: THREE.Vector3, wrist: THREE.Vector3, elbow: THREE.Vector3, r: number, left: boolean): void {
+    const seg = (m: THREE.Material, a: THREE.Vector3, b: THREE.Vector3, ra: number, rb: number) => {
+      const dir = b.clone().sub(a);
+      const len = dir.length();
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rb, ra, len, 12), m);
+      mesh.position.copy(a).addScaledVector(dir, 0.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      this.gun.add(mesh);
+    };
+    const ball = (m: THREE.Material, p: THREE.Vector3, rad: number) => {
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(rad, 12, 8), m);
+      mesh.position.copy(p);
+      this.gun.add(mesh);
+    };
+    // Palm and a row of fingers curled round the gun, thumb along the side.
+    const palm = new THREE.Mesh(new RoundedBoxGeometry(2.6, 3, 2.4, 2, 0.5), glove);
+    palm.position.copy(grip);
+    palm.lookAt(wrist);
+    this.gun.add(palm);
+    for (let i = 0; i < 4; i++) {
+      const f = new THREE.Mesh(new RoundedBoxGeometry(0.75, 0.75, 2.6, 2, 0.3), glove);
+      f.position.set(grip.x + (left ? 1.2 : -1.2), grip.y + 1 - i * 0.8, grip.z - 0.3);
+      f.rotation.y = left ? -0.4 : 0.4;
+      this.gun.add(f);
+    }
+    seg(glove, grip, wrist, r * 0.62, r * 0.7);
+    seg(cuff, wrist, wrist.clone().lerp(elbow, 0.12), r * 0.95, r * 0.95);
+    seg(sleeve, wrist, elbow, r, r * 1.35);
+    ball(sleeve, elbow, r * 1.35);
+    // Upper arm continuing off-screen so the sleeve never visibly ends.
+    seg(sleeve, elbow, elbow.clone().add(new THREE.Vector3(left ? -4 : 4, -10, 6)), r * 1.35, r * 1.5);
+  }
+
   resize(aspect: number): void {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
@@ -89,25 +124,18 @@ export class ViewModel {
     // Sleeves and gloves match the chosen character model.
     const skin = skinFor(team, model);
     const sleeve = new THREE.MeshLambertMaterial({ color: skin.shirt });
-    const hand = new THREE.MeshLambertMaterial({ color: skin.gloves });
-    const box = new THREE.BoxGeometry(1, 1, 1);
-    const add = (m: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number, rx: number, ry = 0) => {
-      const mesh = new THREE.Mesh(box, m);
-      mesh.scale.set(w, h, d);
-      mesh.position.set(x, y, z);
-      mesh.rotation.set(rx, ry, 0);
-      this.gun.add(mesh);
-    };
-    // Right hand on the grip, arm running back out of frame.
-    add(hand, 2.4, 2.4, 3, 0.2, -1.8, 0.6, 0);
-    add(sleeve, 3.2, 3.2, 14, 1.2, -4, 8, 0.35, -0.1);
+    const cuff = new THREE.MeshLambertMaterial({ color: new THREE.Color(skin.shirt).multiplyScalar(0.8) });
+    const glove = new THREE.MeshLambertMaterial({ color: skin.gloves });
     const pistolLike = ['glock', 'usp', 'p228', 'deagle', 'fiveseven', 'elite', 'knife', 'hegrenade', 'flashbang', 'smokegrenade', 'c4'].includes(id);
+    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    // Right hand wraps the grip; forearm runs back and down to an elbow below the screen.
+    this.arm(glove, sleeve, cuff, V(0.2, -2.2, 0.8), V(0.9, -4.2, 3.2), V(4.5, -13, 16), 1.9, false);
     if (pistolLike) {
-      add(hand, 2.4, 2.2, 2.6, -1, -1.6, 0.2, 0);
-      add(sleeve, 3.2, 3.2, 14, -4, -4, 7, 0.35, 0.35);
+      // Support hand cupped under the right one.
+      this.arm(glove, sleeve, cuff, V(-1.1, -2.4, 0.2), V(-2.2, -4.4, 2.6), V(-8, -13, 14), 1.8, true);
     } else {
-      add(hand, 2.4, 2.2, 3, -0.4, -0.2, -10, 0);
-      add(sleeve, 2.6, 2.6, 12, -5, -3.2, -5.5, 0.35, 0.8);
+      // Support hand on the handguard, elbow out to the left.
+      this.arm(glove, sleeve, cuff, V(-0.2, -0.4, -10), V(-0.9, -2.2, -8), V(-9, -10, 3), 1.8, true);
     }
   }
 
