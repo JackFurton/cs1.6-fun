@@ -81,6 +81,10 @@ export class App {
   private resume: HTMLDivElement;
   private specYaw = 0;
   private specPitch = 0;
+  /** 1.6 spectator modes: orbit with the mouse, chase their view, see through their eyes, fly freely. */
+  private specMode: 'free' | 'chase' | 'eyes' | 'roam' = 'free';
+  private specDist = 150;
+  private roamPos = new Vec3();
   private tr = new Trace();
 
   constructor(root: HTMLElement, params: URLSearchParams) {
@@ -382,7 +386,9 @@ export class App {
         if (this.input.locked) document.exitPointerLock();
         else this.menu.show('team');
       }
-      else if (a === 'attack' && !p.alive) this.nextSpecTarget();
+      else if (a === 'attack' && !p.alive) this.nextSpecTarget(1);
+      else if (a === 'attack2' && !p.alive) this.nextSpecTarget(-1);
+      else if (a === 'jump' && !p.alive && this.game.time - this.deathTime >= 2) this.cycleSpecMode();
       else if (slot) c.slot = slot;
       else if (a === 'lastinv') c.slot = p.lastSlot;
       else if (a === 'drop') c.drop = true;
@@ -414,13 +420,19 @@ export class App {
     return p.active;
   }
 
-  private nextSpecTarget(): void {
+  private cycleSpecMode(): void {
+    const modes = ['free', 'chase', 'eyes', 'roam'] as const;
+    this.specMode = modes[(modes.indexOf(this.specMode) + 1) % modes.length];
+    if (this.specMode === 'roam') this.roamPos.copy(this.renderer.camera.position as unknown as Vec3);
+  }
+
+  private nextSpecTarget(dir = 1): void {
     const alive = this.game.players.filter((p) => p.alive && p !== this.local);
     const mates = alive.filter((p) => p.team === this.local.team);
     const pool = mates.length ? mates : alive;
     if (!pool.length) return;
-    const i = this.specTarget ? pool.indexOf(this.specTarget) : -1;
-    this.specTarget = pool[(i + 1) % pool.length];
+    const i = this.specTarget ? pool.indexOf(this.specTarget) : dir > 0 ? -1 : 0;
+    this.specTarget = pool[(i + dir + pool.length) % pool.length];
   }
 
   /** Sounds made by the local player play unpanned. */
@@ -588,6 +600,8 @@ export class App {
     const sy = (Math.random() - 0.5) * this.shake * 3;
 
     let firstPerson = true;
+    let spectated: Player | null = null;
+    this.input.wheelZoomOnly = !p.alive;
     if (p.alive || this.game.time - this.deathTime < 2) {
       const vh = lerp(p.prevViewHeight, p.move.viewHeight);
       const eyeY = p.alive ? vh : Math.max(12, vh - (this.game.time - this.deathTime) * 100);
@@ -595,24 +609,8 @@ export class App {
       firstPerson = p.alive;
       this.hud.setSpectating(null);
     } else {
-      if (!this.specTarget || !this.specTarget.alive) this.nextSpecTarget();
-      const t = this.specTarget;
       firstPerson = false;
-      if (t) {
-        // Chase cam behind the spectated player, pulled in if a wall is in the way.
-        const eye = new Vec3(lerp(t.prevOrigin.x, t.origin.x), lerp(t.prevOrigin.y, t.origin.y) + t.move.viewHeight, lerp(t.prevOrigin.z, t.origin.z));
-        // Follow the spectated player's view, eased so bot flicks don't jerk the camera around.
-        const ease = 1 - Math.exp(-dt * 8);
-        this.specYaw += angleDiff(t.yaw, this.specYaw) * ease;
-        this.specPitch += (t.pitch * 0.5 - 10 - this.specPitch) * ease;
-        const f = new Vec3();
-        angleVectors(this.specYaw, this.specPitch, f);
-        const want = eye.clone().addScaled(f, -110);
-        this.game.world.trace(eye, want, new Vec3(-4, -4, -4), new Vec3(4, 4, 4), this.tr);
-        const cam = this.tr.endpos;
-        this.renderer.setView(cam.x, cam.y, cam.z, this.specYaw, this.specPitch);
-        this.hud.setSpectating(`Spectating ${t.name}  (Mouse1: next player)`);
-      }
+      spectated = this.drawSpectator(lerp, dt);
     }
     this.renderer.setZoom(firstPerson ? zoomFov : null);
     const cam = this.renderer.camera;
@@ -626,7 +624,7 @@ export class App {
         this.models.set(other, m);
         this.renderer.scene.add(m.root);
       }
-      const hidden = other === p && (p.alive || this.game.time - this.deathTime < 2);
+      const hidden = (other === p && (p.alive || this.game.time - this.deathTime < 2)) || other === spectated;
       m.root.visible = !hidden;
       if (hidden) continue;
       m.update(poseOf(other), lerp(other.prevOrigin.x, other.origin.x), lerp(other.prevOrigin.y, other.origin.y), lerp(other.prevOrigin.z, other.origin.z), dt, this.game.time);
@@ -638,9 +636,12 @@ export class App {
 
     const w = p.weapon;
     const scoped = firstPerson && !!zoomFov && !!w && (w.def.zoom?.length ?? 0) > 1;
-    this.viewmodel.update(p, this.game.time, dt, scoped, !!w?.silenced);
+    // In first-person spectating you see their gun, not yours.
+    const vmOwner = spectated ?? p;
+    const specScoped = !!spectated && !!spectated.weapon && spectated.weapon.zoom > 0 && (spectated.weapon.def.zoom?.length ?? 0) > 1;
+    this.viewmodel.update(vmOwner, this.game.time, dt, spectated ? specScoped : scoped, !!vmOwner.weapon?.silenced);
     this.effects.update(dt);
-    this.renderer.render(firstPerson ? this.viewmodel : undefined);
+    this.renderer.render(firstPerson || spectated ? this.viewmodel : undefined);
 
     // Crosshair gap in pixels from the current spread, like cl_dynamiccrosshair.
     let spreadPx = 0;
@@ -658,6 +659,64 @@ export class App {
     this.radar.draw(new Vec3(cam.position.x, 0, cam.position.z), firstPerson ? this.yaw : this.specYaw, p, this.game.players, bomb);
     const title = `${this.options.map}  ·  ${this.defusal ? `Round ${this.defusal.round}` : 'Deathmatch'}`;
     this.scoreboard.show(this.input.isDown('scores') || this.defusal?.phase === 'matchover', this.game.players, this.defusal?.score ?? null, title, p);
+  }
+
+  /** Places the camera for whichever spectator mode is active; returns the player seen first-person, if any. */
+  private drawSpectator(lerp: (a: number, b: number) => number, dt: number): Player | null {
+    const wheel = this.input.takeWheel();
+    this.specDist = Math.max(40, Math.min(700, this.specDist * Math.pow(1.15, wheel)));
+    const labels = { free: 'Free Look', chase: 'Chase Cam', eyes: 'First Person', roam: 'Free Roam' };
+    const help = 'Mouse1/2: player · Space: mode · Wheel: zoom';
+
+    if (this.specMode === 'roam') {
+      // Noclip camera: WASD relative to where you look, Shift slow, Ctrl down.
+      const i = this.input;
+      const f = new Vec3();
+      const r = new Vec3();
+      angleVectors(this.yaw, this.pitch, f, r);
+      const speed = (i.isDown('walk') ? 250 : 900) * dt;
+      this.roamPos.addScaled(f, ((i.isDown('forward') ? 1 : 0) - (i.isDown('back') ? 1 : 0)) * speed);
+      this.roamPos.addScaled(r, ((i.isDown('right') ? 1 : 0) - (i.isDown('left') ? 1 : 0)) * speed);
+      if (i.isDown('duck')) this.roamPos.y -= speed;
+      this.renderer.setView(this.roamPos.x, this.roamPos.y, this.roamPos.z, this.yaw, this.pitch);
+      this.specYaw = this.yaw;
+      this.hud.setSpectating(`${labels.roam}  ·  WASD fly, Shift slow, Ctrl down  ·  Space: mode`);
+      return null;
+    }
+
+    if (!this.specTarget || !this.specTarget.alive) this.nextSpecTarget();
+    const t = this.specTarget;
+    if (!t) {
+      this.hud.setSpectating('Nobody left to spectate  ·  Space: mode');
+      return null;
+    }
+    const eye = new Vec3(lerp(t.prevOrigin.x, t.origin.x), lerp(t.prevOrigin.y, t.origin.y) + lerp(t.prevViewHeight, t.move.viewHeight), lerp(t.prevOrigin.z, t.origin.z));
+    this.hud.setSpectating(`${labels[this.specMode]}: ${t.name} (${t.health} HP)  ·  ${help}`);
+
+    if (this.specMode === 'eyes') {
+      this.specYaw = t.yaw;
+      this.specPitch = t.pitch;
+      this.renderer.setView(eye.x, eye.y, eye.z, t.yaw + t.punchYaw, t.pitch + t.punchPitch);
+      return t;
+    }
+    if (this.specMode === 'chase') {
+      // Follow their view, eased so bot flicks don't jerk the camera around.
+      const ease = 1 - Math.exp(-dt * 8);
+      this.specYaw += angleDiff(t.yaw, this.specYaw) * ease;
+      this.specPitch += (t.pitch * 0.5 - 10 - this.specPitch) * ease;
+    } else {
+      // Free look: your mouse orbits the camera around them.
+      this.specYaw = this.yaw;
+      this.specPitch = this.pitch;
+    }
+    const f = new Vec3();
+    angleVectors(this.specYaw, this.specPitch, f);
+    // Pull in if a wall is in the way.
+    const want = eye.clone().addScaled(f, -this.specDist);
+    this.game.world.trace(eye, want, new Vec3(-4, -4, -4), new Vec3(4, 4, 4), this.tr);
+    const cam = this.tr.endpos;
+    this.renderer.setView(cam.x, cam.y, cam.z, this.specYaw, this.specPitch);
+    return null;
   }
 
   private updateRoundHud(): void {

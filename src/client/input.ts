@@ -57,6 +57,10 @@ export class Input {
   mouseDY = 0;
   locked = false;
   wheelMode: 'downjump' | 'jump' | 'weapons' = 'downjump';
+  /** Raw wheel movement, for spectator zoom. */
+  private wheel = 0;
+  /** When set (spectating), the wheel only zooms and never jumps or switches weapons. */
+  wheelZoomOnly = false;
   onLockChange: (locked: boolean) => void = () => {};
 
   constructor(private readonly target: HTMLElement) {
@@ -81,6 +85,8 @@ export class Input {
       'wheel',
       (e) => {
         if (!this.locked || e.deltaY === 0) return;
+        this.wheel += Math.sign(e.deltaY);
+        if (this.wheelZoomOnly) return;
         const down = e.deltaY > 0;
         // A wheel notch is a tap: it lands in exactly one tick, so each notch is one jump attempt.
         if (this.wheelMode === 'jump' || (this.wheelMode === 'downjump' && down)) this.tapped.add('jump');
@@ -133,6 +139,12 @@ export class Input {
   /** Call after each sim tick so taps are seen by exactly one tick. */
   endTick(): void {
     this.tapped.clear();
+  }
+
+  takeWheel(): number {
+    const w = this.wheel;
+    this.wheel = 0;
+    return w;
   }
 
   takeMouse(): [number, number] {
