@@ -73,6 +73,10 @@ export class BombDefusal implements GameMode {
   planter: Player | null = null;
   plantEnd = 0;
   lastWinner: Team | null = null;
+  /** Every finished round, for the scoreboard strip. */
+  history: { winner: Team; reason: RoundEnd; mvp: Player | null }[] = [];
+  private roundPlanter: Player | null = null;
+  private roundDefuser: Player | null = null;
   lastReason: RoundEnd | null = null;
   private nextBeep = 0;
 
@@ -83,11 +87,12 @@ export class BombDefusal implements GameMode {
 
   start(): void {
     this.round = 0;
+    this.history = [];
     this.score = { T: 0, CT: 0 };
     this.lossStreak = { T: 0, CT: 0 };
     for (const p of this.g.players) {
       p.money = ECON.start;
-      p.kills = p.deaths = 0;
+      p.kills = p.deaths = p.assists = p.headshots = p.mvps = p.damageDealt = 0;
       p.weapons = {};
       p.resetLoadout();
       p.armor = 0;
@@ -132,6 +137,8 @@ export class BombDefusal implements GameMode {
     if (this.cfg.halftime && this.round === this.cfg.halftime + 1) this.swapSides();
     this.bomb = null;
     this.planter = null;
+    this.roundPlanter = this.roundDefuser = null;
+    for (const p of g.players) p.roundKills = 0;
     g.dropped.length = 0;
     g.grenades.live.length = 0;
     g.grenades.smokes.length = 0;
@@ -271,6 +278,7 @@ export class BombDefusal implements GameMode {
         b.defuser = null;
       } else if (g.time >= b.defuseEnd) {
         b.defused = true;
+        this.roundDefuser = b.defuser;
         b.defuser = null;
         this.endRound('CT', 'defuse');
         return;
@@ -297,6 +305,7 @@ export class BombDefusal implements GameMode {
 
   private plant(p: Player, site: string): void {
     const g = this.g;
+    this.roundPlanter = p;
     this.planter = null;
     delete p.weapons.c4;
     p.active = p.weapons.primary ? 'primary' : p.weapons.secondary ? 'secondary' : 'knife';
@@ -351,6 +360,14 @@ export class BombDefusal implements GameMode {
     this.score[winner]++;
     this.lastWinner = winner;
     this.lastReason = reason;
+    // MVP: the defuser or planter when that won it, otherwise the winner with the most kills.
+    let mvp: Player | null = reason === 'defuse' ? this.roundDefuser : reason === 'bomb' ? this.roundPlanter : null;
+    if (!mvp) {
+      const winners = g.players.filter((p) => p.team === winner && p.roundKills > 0);
+      mvp = winners.sort((a, b) => b.roundKills - a.roundKills)[0] ?? null;
+    }
+    if (mvp) mvp.mvps++;
+    this.history.push({ winner, reason, mvp });
     this.lossStreak[winner] = 0;
     const lossBonus = Math.min(ECON.lossMax, ECON.lossBase + ECON.lossStep * this.lossStreak[loser]);
     this.lossStreak[loser]++;

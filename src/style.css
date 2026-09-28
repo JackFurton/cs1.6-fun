@@ -78,11 +78,11 @@ canvas { display: block; }
 .spectating { position: absolute; bottom: 80px; left: 0; right: 0; text-align: center; font-size: 16px; color: #ddd; display: none; text-shadow: 1px 1px 0 #000; }
 
 
-.scoreboard { position: fixed; left: 50%; top: 12%; transform: translateX(-50%); width: min(760px, calc(100% - 32px)); background: rgba(0,0,0,0.72); color: #ddd; padding: 12px 16px; font-size: 14px; }
+.scoreboard { position: fixed; left: 50%; top: 10%; transform: translateX(-50%); width: min(860px, calc(100% - 32px)); background: rgba(0,0,0,0.72); color: #ddd; padding: 12px 16px; font-size: 14px; }
 .sb-title { text-align: center; font-weight: bold; color: rgb(255,180,40); margin-bottom: 8px; }
 .scoreboard table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
 .scoreboard th { text-align: left; border-bottom: 1px solid #555; padding: 3px 4px; font-weight: bold; }
-.scoreboard th:nth-child(n+3), .scoreboard td:nth-child(n+3) { text-align: right; width: 70px; }
+.scoreboard th:nth-child(n+3), .scoreboard td:nth-child(n+3) { text-align: right; width: 52px; }
 .scoreboard td { padding: 2px 4px; }
 .scoreboard table.CT { color: #9cc4ff; }
 .scoreboard table.T { color: #ff8a70; }
@@ -169,3 +169,9 @@ canvas { display: block; }
 .radiomenu { position: fixed; left: 24px; top: 30%; background: rgba(0,0,0,0.55); color: rgb(255,180,40); padding: 10px 16px; font-size: 15px; line-height: 1.7; border: 1px solid rgba(255,180,40,0.3); z-index: 15; pointer-events: none; }
 .radiomenu .radio-title { color: #fff; font-weight: bold; margin-bottom: 4px; }
 .radiomenu .num { display: inline-block; width: 22px; }
+.scoreboard .mvp { color: #ffd24a; font-size: 12px; }
+.sb-rounds { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-bottom: 10px; }
+.sb-rounds .rd { width: 20px; height: 20px; line-height: 20px; text-align: center; font-size: 11px; border-radius: 2px; }
+.sb-rounds .rd.T { background: rgba(200, 80, 50, 0.7); }
+.sb-rounds .rd.CT { background: rgba(60, 110, 200, 0.7); }
+.sb-rounds .half { width: 2px; background: #888; margin: 0 4px; }

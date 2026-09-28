@@ -675,8 +675,10 @@ export class App {
         this.renderer.scene.add(m.root);
       }
       const hidden = (other === p && (p.alive || this.game.time - this.deathTime < 2)) || other === spectated;
-      m.root.visible = !hidden;
-      if (hidden) continue;
+      // Also hide anyone the camera is inside of (spectating a crowded spawn).
+      const tooClose = !hidden && cam.position.distanceTo(new THREE.Vector3(other.origin.x, other.origin.y + 36, other.origin.z)) < 34;
+      m.root.visible = !hidden && !tooClose;
+      if (hidden || tooClose) continue;
       m.update(poseOf(other), lerp(other.prevOrigin.x, other.origin.x), lerp(other.prevOrigin.y, other.origin.y), lerp(other.prevOrigin.z, other.origin.z), dt, this.game.time);
       m.setLight(this.lightFor(other, dt));
     }
@@ -715,7 +717,8 @@ export class App {
       this.radar.draw(new Vec3(cam.position.x, 0, cam.position.z), firstPerson ? this.yaw : this.specYaw, p, this.game.players, bomb);
     }
     const title = `${this.options.map}  ·  ${this.defusal ? `Round ${this.defusal.round}` : 'Deathmatch'}`;
-    this.scoreboard.show(this.input.isDown('scores') || this.defusal?.phase === 'matchover', this.game.players, this.defusal?.score ?? null, title, p);
+    const d2 = this.defusal;
+    this.scoreboard.show(this.input.isDown('scores') || d2?.phase === 'matchover', this.game.players, { score: d2?.score ?? null, history: d2?.history ?? [], half: d2?.cfg.halftime ?? 0, matchOver: d2?.phase === 'matchover' }, title, p);
   }
 
   /** Places the camera for whichever spectator mode is active; returns the player seen first-person, if any. */
