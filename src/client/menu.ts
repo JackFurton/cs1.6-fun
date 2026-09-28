@@ -191,7 +191,7 @@ export class Menu {
       ${this.started ? '<button data-act="screen" data-val="team">Change Team <kbd>M</kbd></button>' : ''}
       <button data-act="screen" data-val="options">Options</button>
       <button data-act="fullscreen">Fullscreen <kbd>Alt+Enter</kbd></button>
-      <p class="keys">WASD move · Space / wheel down jump · Ctrl duck · Shift walk · Mouse1 fire · Mouse2 alt fire · R reload · B buy (R in menu: rebuy) · 1-5 weapons · Q last weapon · G drop · E defuse · Tab scores · M team · Esc menu</p>`;
+      <p class="keys">WASD move · Space / wheel down jump · Ctrl duck · Shift walk · Mouse1 fire · Mouse2 alt fire · R reload · B buy (R in menu: rebuy) · 1-5 weapons · Q last weapon · G drop · E defuse · Z/X/C radio (bots obey) · Tab scores · M team · Esc menu</p>`;
   }
 
   private renderNewGame(): void {
