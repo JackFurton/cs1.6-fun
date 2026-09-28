@@ -180,3 +180,7 @@ canvas { display: block; }
 .menu .bind-row button.bind { margin: 0; padding: 5px; font-size: 12px; background: #2c2f27; }
 .menu .bind-row button.bind.waiting { background: #6a5a2a; color: #fff; }
 @media (max-width: 700px) { .binds { grid-template-columns: 1fr; } }
+.settings input[type='text'] { width: 170px; background: #222; color: #eee; border: 1px solid #666; padding: 3px 6px; }
+.menu code { background: #111; padding: 1px 5px; color: rgb(255,180,40); }
+.connecting { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: #ddd; font-size: 20px; line-height: 1.6; }
+.connecting a { color: rgb(255,180,40); }

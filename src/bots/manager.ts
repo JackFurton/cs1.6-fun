@@ -66,6 +66,15 @@ export class BotManager {
     if (mode instanceof BombDefusal) this.planSites();
   }
 
+  addBot(p: Player, difficulty: Difficulty): void {
+    this.bots.push(new Bot(p, this, SKILLS[difficulty]));
+  }
+
+  removeBot(p: Player): void {
+    const i = this.bots.findIndex((b) => b.p === p);
+    if (i >= 0) this.bots.splice(i, 1);
+  }
+
   setDifficulty(d: Difficulty): void {
     for (const b of this.bots) b.skill = SKILLS[d];
   }

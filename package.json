@@ -11,14 +11,18 @@
     "test": "vitest run",
     "desktop": "npm run build && electron .",
     "dist:win": "npm run build && electron-builder --win portable --x64 --publish never",
-    "dist:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never"
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never",
+    "build:server": "vite build --ssr src/server/main.ts --outDir dist-server",
+    "server": "npm run build && npm run build:server && node dist-server/main.js"
   },
   "dependencies": {
-    "three": "^0.186.1"
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.1",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
     "playwright": "^1.63.0",

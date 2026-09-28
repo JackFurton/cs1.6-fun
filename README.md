@@ -26,6 +26,19 @@ Sensitivity uses 1.6's scale (0.022 deg per count), so your old `sensitivity` va
 - Bots with generated navigation, human-like aim and reaction times, site takes, holds, rotations, retakes, buying and grenades. Skill presets: easy, normal (~Silver), hard (~Gold Nova), expert.
 - Maps: de_dust2 and de_cache style layouts from memory, and aim_arena.
 
+## Play with friends
+
+One person hosts a dedicated server (bots fill the empty slots):
+
+```
+./play.sh host              # de_dust2, bomb defusal
+./play.sh host de_mirage dm # any map, deathmatch
+```
+
+It prints addresses like `http://192.168.1.20:27015/?connect`. Friends open that in a browser, or use Play with Friends in the menu and type the address. Port 27015 must be reachable: the same network works as-is; over the internet use Tailscale/ZeroTier or forward the port. Under WSL, LAN friends need WSL's mirrored networking or a Windows port proxy.
+
+The server is authoritative at 100 ticks per second and sends 30 snapshots a second. Your own movement is predicted and replayed, and other players are drawn 100ms behind. There's no lag compensation yet, so on high ping you'll need to lead moving targets.
+
 ## Real 1.6 sounds
 
 The game synthesizes every sound, but if you own Counter-Strike 1.6 you can use its originals:

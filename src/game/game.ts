@@ -68,12 +68,23 @@ export class Game {
     return e;
   }
 
+  private nextPlayerId = 0;
+
   addPlayer(name: string, team: Team, isBot: boolean): Player {
-    const p = new Player(this.players.length, name, team, isBot);
+    // Ids outlive array positions once players can leave (network games).
+    const p = new Player(this.nextPlayerId++, name, team, isBot);
     this.players.push(p);
     this.playerBoxes.set(p, boxBrush(new Vec3(), new Vec3(), 'player'));
     p.resetLoadout();
     return p;
+  }
+
+  removePlayer(p: Player): void {
+    const i = this.players.indexOf(p);
+    if (i < 0) return;
+    if (p.alive) this.kill(p, null, 'world', false, false);
+    this.players.splice(i, 1);
+    this.playerBoxes.delete(p);
   }
 
   spawn(p: Player, index: number): void {

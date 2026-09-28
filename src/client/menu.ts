@@ -45,7 +45,7 @@ export interface SkinCard {
   image: string;
 }
 
-type Screen = 'main' | 'newgame' | 'options' | 'keys' | 'team' | 'character';
+type Screen = 'main' | 'newgame' | 'options' | 'keys' | 'team' | 'character' | 'join';
 
 const DIFFS = [
   ['easy', 'Easy'],
@@ -171,6 +171,15 @@ export class Menu {
         this.startBinding(action as Action, Number(slot));
         break;
       }
+      case 'connect': {
+        const addr = (this.box.querySelector('[name=addr]') as HTMLInputElement).value.trim();
+        const name = (this.box.querySelector('[name=pname]') as HTMLInputElement).value.trim() || 'Player';
+        this.settings.name = name.slice(0, 24);
+        this.settings.lastServer = addr;
+        this.onChange(this.settings);
+        location.search = new URLSearchParams({ connect: addr }).toString();
+        break;
+      }
       case 'resetbinds':
         this.settings.binds = structuredClone(DEFAULT_BINDS);
         this.onChange(this.settings);
@@ -193,6 +202,8 @@ export class Menu {
         return this.renderCharacter();
       case 'keys':
         return this.renderKeys();
+      case 'join':
+        return this.renderJoin();
     }
   }
 
@@ -205,6 +216,7 @@ export class Menu {
       <div class="sub">${where}</div>
       <button class="big play" data-act="play">${this.started ? 'Resume' : 'Play'}</button>
       <button data-act="screen" data-val="newgame">New Game</button>
+      ${this.started ? '' : '<button data-act="screen" data-val="join">Play with Friends</button>'}
       ${this.started ? '<button data-act="screen" data-val="team">Change Team <kbd>M</kbd></button>' : ''}
       <button data-act="screen" data-val="options">Options</button>
       <button data-act="fullscreen">Fullscreen <kbd>Alt+Enter</kbd></button>
@@ -284,6 +296,19 @@ export class Menu {
       this.onChange(this.settings);
       this.render();
     };
+  }
+
+  private renderJoin(): void {
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    this.box.className = 'menu-box';
+    this.box.innerHTML = `
+      <h2>Play with Friends</h2>
+      <div class="settings">
+        <label>Your name <input name="pname" type="text" maxlength="24" value="${esc(this.settings.name)}"></label>
+        <label>Server address <input name="addr" type="text" placeholder="192.168.1.20" value="${esc(this.settings.lastServer)}"></label>
+      </div>
+      <p class="note">To host: run <code>./play.sh host</code> (or <code>./play.sh host de_mirage</code>). It prints the address friends should type here, and they can also just open it in a browser. Port 27015 has to be reachable: same Wi-Fi works as-is; over the internet use Tailscale/ZeroTier or forward the port.</p>
+      <div class="row end"><button data-act="screen" data-val="main">Back</button><button class="big" data-act="connect">Join</button></div>`;
   }
 
   private renderKeys(): void {

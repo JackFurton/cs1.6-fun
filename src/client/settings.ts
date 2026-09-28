@@ -22,6 +22,10 @@ export interface Settings {
   crosshairDot: boolean;
   crosshairOutline: boolean;
   binds: Binds;
+  /** Your name in network games. */
+  name: string;
+  /** Last server joined, prefilled on the join screen. */
+  lastServer: string;
 }
 
 const DEFAULTS: Settings = {
@@ -42,6 +46,8 @@ const DEFAULTS: Settings = {
   crosshairDot: false,
   crosshairOutline: true,
   binds: DEFAULT_BINDS,
+  name: 'Player',
+  lastServer: '',
 };
 
 const KEY = 'cs16fun.settings';
