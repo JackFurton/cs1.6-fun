@@ -51,7 +51,8 @@ export class NetClient {
   private boxes = new Map<Player, Brush>();
   /** Server time estimate, advanced locally between snapshots. */
   private serverTime = 0;
-  private events: GameEvent[] = [];
+  /** Raw events, decoded when taken so they resolve against the latest player list. */
+  private events: unknown[] = [];
   onWelcome: (local: Player) => void = () => {};
   onBuyResult: (err: string | null) => void = () => {};
   onChat: (from: Player | undefined, text: string) => void = () => {};
@@ -95,10 +96,7 @@ export class NetClient {
         this.onSnapshot(msg.s);
         break;
       case 'events':
-        for (const raw of msg.e) {
-          const ev = decodeEvent(raw, (id) => this.byId.get(id)) as GameEvent;
-          this.events.push(ev);
-        }
+        this.events.push(...msg.e);
         break;
       case 'buyResult':
         this.onBuyResult(msg.err);
@@ -110,9 +108,27 @@ export class NetClient {
   }
 
   takeEvents(): GameEvent[] {
-    const e = this.events;
-    this.events = [];
-    return e;
+    const out: GameEvent[] = [];
+    const keep: unknown[] = [];
+    for (const raw of this.events) {
+      // Events can arrive before the snapshot that introduces a player (they're sent every tick,
+      // snapshots 30 times a second). Hold those back briefly rather than handing out nulls.
+      let missing = false;
+      const ev = decodeEvent(raw, (id) => {
+        const p = this.byId.get(id);
+        if (!p) missing = true;
+        return p;
+      }) as GameEvent & { age?: number };
+      if (!missing) out.push(ev);
+      else {
+        const r = raw as { __age?: number };
+        r.__age = (r.__age ?? 0) + 1;
+        // A player who left before we ever saw them: give up after a few frames.
+        if (r.__age < 30) keep.push(raw);
+      }
+    }
+    this.events = keep;
+    return out;
   }
 
   private onSnapshot(s: Snapshot): void {
