@@ -25,6 +25,8 @@ import { skinPreviews } from './previews';
 import { SKINS } from './skins';
 import { PlayerModel, poseOf } from './playermodel';
 import { Radar } from './radar';
+import { RadioMenuUI } from './radiomenu';
+import { radioText } from '../game/radio';
 import { Renderer } from './renderer';
 import { Scoreboard } from './scoreboard';
 import { SmokeRenderer } from './smokes';
@@ -48,6 +50,7 @@ export class App {
   readonly buyMenu: BuyMenu;
   readonly scoreboard: Scoreboard;
   readonly radar: Radar;
+  readonly radioMenu: RadioMenuUI;
   readonly viewmodel = new ViewModel();
   readonly effects: Effects;
   readonly audio = new Audio();
@@ -112,6 +115,13 @@ export class App {
     this.hud = new Hud(root, this.settings);
     this.scoreboard = new Scoreboard(root);
     this.radar = new Radar(root, map);
+    this.radioMenu = new RadioMenuUI(root);
+    this.radioMenu.onPick = (cmd) => {
+      if (!this.started || !this.local.alive) return;
+      this.hud.chat(`(RADIO) ${this.local.name}: ${radioText(cmd)}`, this.local.team);
+      this.audio.click(null, 1100, 0.15);
+      this.bots.command(this.local, cmd);
+    };
     this.buyMenu = new BuyMenu(root);
     const cards = mapNames.map((name) => ({ name, image: renderMapImage(MAPS[name](), 256).canvas.toDataURL() }));
     this.menu = new Menu(root, this.settings, this.options, cards);
@@ -392,6 +402,9 @@ export class App {
     for (const a of i.takePresses()) {
       const slot = SLOT_KEYS[a];
       if (a === 'buy') this.toggleBuy();
+      else if (a === 'radio1' || a === 'radio2' || a === 'radio3') {
+        if (p.alive) this.radioMenu.toggle(Number(a.slice(5)) - 1);
+      }
       else if (a === 'chooseteam') {
         this.wantTeamMenu = true;
         if (this.input.locked) document.exitPointerLock();

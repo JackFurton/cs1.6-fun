@@ -1,10 +1,11 @@
-import { Vec3 } from '../engine/vec';
+import { Vec3, angleVectors } from '../engine/vec';
 import { Deathmatch } from '../game/deathmatch';
 import type { Game } from '../game/game';
 import type { GameMode } from '../game/mode';
 import type { Player } from '../game/player';
 import { BombDefusal } from '../game/rules';
 import { inZone, type Team, type Zone } from '../maps/types';
+import type { RadioCommand } from '../game/radio';
 import { Bot, type Task } from './bot';
 import { botBuy } from './buy';
 import { NavGraph, type NavNode } from './nav';
@@ -229,6 +230,12 @@ export class BotManager {
 
   update(dt: number): void {
     const d = this.defusal;
+    for (let i = this.pendingRadio.length - 1; i >= 0; i--) {
+      const r = this.pendingRadio[i];
+      if (this.game.time < r.at) continue;
+      this.pendingRadio.splice(i, 1);
+      if (r.p.alive) this.game.emit({ type: 'radio', player: r.p, text: r.text });
+    }
     if (this.mode instanceof Deathmatch) {
       for (const b of this.bots) {
         if (!b.p.alive) continue;
@@ -340,6 +347,103 @@ export class BotManager {
       if (best) {
         claimed.add(best);
         b.task = { kind: 'grab', pos: best, then: b.task };
+      }
+    }
+  }
+
+  private pendingRadio: { at: number; p: Player; text: string }[] = [];
+
+  /** Radio reply after a delay in game time, so it stays deterministic in headless sims. */
+  private later(secs: number, p: Player, text: string): void {
+    this.pendingRadio.push({ at: this.game.time + secs, p, text });
+  }
+
+  /** A human used the radio: teammate bots react like a cooperative 1.6 team would. */
+  command(from: Player, cmd: RadioCommand): void {
+    const g = this.game;
+    const mates = this.bots.filter((b) => b.p.alive && b.p.team === from.team && b.p !== from);
+    if (!mates.length) return;
+    const byDist = [...mates].sort((a, b) => a.p.origin.distanceTo(from.origin) - b.p.origin.distanceTo(from.origin));
+    const follow = (b: Bot, secs = 45) => (b.task = { kind: 'follow', leader: from, until: g.time + secs });
+    const ack = (b: Bot | undefined, text = 'Affirmative.') => {
+      if (!b) return;
+      // A beat before answering, like someone keying the mic.
+      this.later(0.5 + g.rand() * 0.7, b.p, text);
+    };
+    const site = (name: string) => this.sites.find((s) => s.zone.name === name);
+    const sendTo = (s: SitePlan, bots: Bot[]) => {
+      for (const b of bots) {
+        if (from.team === 'T') {
+          const dest = pick(s.nodes, g.rand).pos.clone();
+          b.task = b.p.weapons.c4 ? { kind: 'go', via: null, dest, then: { kind: 'plant', spot: dest } } : { kind: 'go', via: null, dest, then: { kind: 'hunt', dest: null } };
+        } else {
+          const h = pick(s.ctHolds, g.rand);
+          b.task = { kind: 'go', via: null, dest: h.pos.clone(), then: { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() } };
+        }
+      }
+      if (from.team === 'T') this.targetSite = s;
+    };
+
+    switch (cmd) {
+      case 'coverme':
+      case 'needbackup':
+      case 'takingfire':
+        for (const b of byDist.slice(0, cmd === 'coverme' ? 1 : 2)) follow(b, 25);
+        ack(byDist[0], cmd === 'coverme' ? 'Affirmative.' : 'On my way!');
+        break;
+      case 'followme':
+        for (const b of byDist.slice(0, 2)) follow(b);
+        ack(byDist[0]);
+        break;
+      case 'regroup':
+      case 'sticktogether':
+        for (const b of mates) follow(b);
+        ack(byDist[0]);
+        break;
+      case 'holdpos':
+      case 'getinpos':
+        for (const b of byDist.slice(0, cmd === 'holdpos' ? 2 : mates.length)) {
+          const f = new Vec3();
+          angleVectors(b.p.yaw, 0, f);
+          b.task = { kind: 'hold', spot: b.p.origin.clone(), look: b.p.eye().addScaled(f, 400) };
+        }
+        ack(byDist[0], "I'm in position.");
+        break;
+      case 'takepoint':
+        if (byDist[0]) byDist[0].task = { kind: 'hunt', dest: from.eye().clone() };
+        ack(byDist[0]);
+        break;
+      case 'gogogo':
+      case 'stormfront':
+        if (from.team === 'T' && this.targetSite) sendTo(this.targetSite, mates);
+        else for (const b of mates) b.task = { kind: 'hunt', dest: null };
+        ack(byDist[0], 'Roger that.');
+        break;
+      case 'goa':
+      case 'gob': {
+        const s = site(cmd === 'goa' ? 'A' : 'B');
+        if (s) sendTo(s, mates);
+        ack(byDist[0], `Going ${cmd === 'goa' ? 'A' : 'B'}.`);
+        break;
+      }
+      case 'fallback': {
+        const spawn = g.map.spawns[from.team][0].pos;
+        for (const b of mates) b.task = { kind: 'go', via: null, dest: spawn.clone(), then: { kind: 'hunt', dest: null } };
+        ack(byDist[0]);
+        break;
+      }
+      case 'reportin':
+        mates.slice(0, 3).forEach((b, i) => this.later(0.6 + i * 0.7, b.p, b.enemy && b.enemy.alive ? 'Enemy spotted.' : 'Reporting in.'));
+        break;
+      case 'enemyspotted': {
+        // Mark whatever you're looking at as a contact for the team.
+        const f = new Vec3();
+        angleVectors(from.yaw, from.pitch, f);
+        const eye = from.eye();
+        const hit = g.world.trace(eye, eye.clone().addScaled(f, 3000));
+        const at = hit.endpos.clone();
+        for (const e of g.players) if (e.alive && e.team !== from.team && e.origin.distanceTo(at) < 600) this.report(from, e, e.origin);
+        break;
       }
     }
   }

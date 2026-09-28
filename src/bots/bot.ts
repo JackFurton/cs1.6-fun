@@ -33,7 +33,9 @@ export type Task =
   /** Walk over a gun on the floor to pick it up, then carry on with `then`. */
   | { kind: 'grab'; pos: Vec3; then: Task }
   /** Deathmatch or late round: roam and fight. */
-  | { kind: 'hunt'; dest: Vec3 | null };
+  | { kind: 'hunt'; dest: Vec3 | null }
+  /** Stay near a teammate (the human, usually), watching where they aren't. */
+  | { kind: 'follow'; leader: Player; until: number };
 
 const tr = new Trace();
 const LIFT = new Vec3(0, 18, 0);
@@ -196,6 +198,16 @@ export class Bot {
       }
       case 'fetch':
         return t.pos;
+      case 'follow': {
+        const l = t.leader;
+        if (!l.alive || this.time > t.until) {
+          this.task = { kind: 'hunt', dest: null };
+          return null;
+        }
+        // Trail a little behind and to the side so we're not in the leader's line of fire.
+        const d = Math.hypot(l.origin.x - this.p.origin.x, l.origin.z - this.p.origin.z);
+        return d > 170 ? l.origin : null;
+      }
       case 'grab':
         if (this.p.weapons.primary || Math.hypot(t.pos.x - this.p.origin.x, t.pos.z - this.p.origin.z) < 24) {
           this.task = t.then;

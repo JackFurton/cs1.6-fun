@@ -14,7 +14,7 @@ For the desktop build, grab `cs1.6-fun-<version>.exe` from the latest GitHub rel
 
 ## Controls
 
-WASD move, Space jump, Ctrl duck, Shift walk (silent), Mouse1 fire, Mouse2 scope/silencer/burst/knife stab, R reload, B buy menu (number keys), 1-5 weapon slots (4 again cycles grenades), Q last weapon, mouse wheel cycle, G drop, E defuse, Tab scores.
+WASD move, Space jump, Ctrl duck, Shift walk (silent), Mouse1 fire, Mouse2 scope/silencer/burst/knife stab, R reload, B buy menu (number keys), 1-5 weapon slots (4 again cycles grenades), Q last weapon, mouse wheel cycle, G drop, E defuse, Z/X/C radio menus (your bots follow them: follow me, hold, go A/B, regroup, fall back...), Tab scores.
 
 Sensitivity uses 1.6's scale (0.022 deg per count), so your old `sensitivity` value carries over. Raw input is on by default.
 
