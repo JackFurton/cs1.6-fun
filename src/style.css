@@ -175,3 +175,8 @@ canvas { display: block; }
 .sb-rounds .rd.T { background: rgba(200, 80, 50, 0.7); }
 .sb-rounds .rd.CT { background: rgba(60, 110, 200, 0.7); }
 .sb-rounds .half { width: 2px; background: #888; margin: 0 4px; }
+.binds { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; max-height: 55vh; overflow: auto; }
+.bind-row { display: grid; grid-template-columns: 1fr 110px 110px; gap: 6px; align-items: center; font-size: 13px; }
+.menu .bind-row button.bind { margin: 0; padding: 5px; font-size: 12px; background: #2c2f27; }
+.menu .bind-row button.bind.waiting { background: #6a5a2a; color: #fff; }
+@media (max-width: 700px) { .binds { grid-template-columns: 1fr; } }
