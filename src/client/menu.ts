@@ -248,6 +248,7 @@ export class Menu {
         <label>Sensitivity <input name="sensitivity" type="number" step="0.05" min="0.05" max="20"></label>
         <label>FOV (4:3 horizontal) <input name="fov" type="number" step="1" min="70" max="120"></label>
         <label>Volume <input name="volume" type="range" min="0" max="1" step="0.05"></label>
+        <label>Announcer <select name="announcer"><option value="classic">Classic radio</option><option value="chef">Angry chef</option><option value="off">Off</option></select></label>
         <label>Render scale <input name="renderScale" type="range" min="0.5" max="1" step="0.05"></label>
         <label><input name="rawInput" type="checkbox"> Raw mouse input</label>
         <label><input name="invertMouse" type="checkbox"> Invert mouse</label>

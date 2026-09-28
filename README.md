@@ -26,6 +26,18 @@ Sensitivity uses 1.6's scale (0.022 deg per count), so your old `sensitivity` va
 - Bots with generated navigation, human-like aim and reaction times, site takes, holds, rotations, retakes, buying and grenades. Skill presets: easy, normal (~Silver), hard (~Gold Nova), expert.
 - Maps: de_dust2 and de_cache style layouts from memory, and aim_arena.
 
+## Real 1.6 sounds
+
+The game synthesizes every sound, but if you own Counter-Strike 1.6 you can use its originals:
+
+```
+mkdir -p public/sounds
+cp -r "<Steam>/steamapps/common/Half-Life/cstrike/sound" public/sounds/cstrike
+./play.sh
+```
+
+Guns, footsteps, hits, knife, C4, grenades and the radio voice lines all pick up the matching files; anything missing falls back to synthesis. `public/sounds/` is gitignored, so Valve's files never end up in the repo. The browser console says how many files it loaded.
+
 ## Develop
 
 ```

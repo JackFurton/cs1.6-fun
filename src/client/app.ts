@@ -13,6 +13,7 @@ import type { Slot, WeaponId } from '../game/weapons';
 import { WEAPONS } from '../game/weapons';
 import { MAPS } from '../maps';
 import type { Team } from '../maps/types';
+import { Announcer } from './announcer';
 import { Audio } from './audio';
 import { BuyMenu, owns } from './buymenu';
 import { Effects } from './effects';
@@ -34,7 +35,6 @@ import { buildWeaponModel } from './weaponmodel';
 const SLOT_ORDER: Slot[] = ['primary', 'secondary', 'knife', 'grenade', 'c4'];
 const SLOT_KEYS: Partial<Record<Action, Slot>> = { slot1: 'primary', slot2: 'secondary', slot3: 'knife', slot4: 'grenade', slot5: 'c4' };
 const BOT_NAMES = ['Gordon', 'Adrian', 'Barney', 'Otis', 'Kleiner', 'Eli', 'Alyx', 'Breen', 'Vance', 'Shephard', 'Magnusson', 'Grigori', 'Mossman', 'Calhoun', 'Freeman', 'Wallace', 'Cross', 'Laszlo'];
-const GO_LINES = ['Go go go!', 'Move out!', "Let's go!", 'Stick together, team.', 'Lock and load.'];
 
 export class App {
   readonly settings = loadSettings();
@@ -51,6 +51,9 @@ export class App {
   readonly viewmodel = new ViewModel();
   readonly effects: Effects;
   readonly audio = new Audio();
+  readonly announcer = new Announcer(this.audio);
+  /** Local player's recent kills, for multi-kill callouts. */
+  private killTimes: number[] = [];
   local: Player;
   bots!: BotManager;
   private started = false;
@@ -165,6 +168,9 @@ export class App {
       else this.lockAgain();
     };
     this.audio.setVolume(this.settings.volume);
+    this.announcer.setPack(this.settings.announcer);
+    // Open maps get a short tail, enclosed ones more room.
+    this.audio.roominess = map.name === 'de_inferno' || map.name === 'de_cache' ? 0.6 : map.name.startsWith('fy_') ? 0.25 : 0.4;
     this.menu.onPlay = () => {
       // Outside fullscreen the browser won't let the page block Ctrl+W, but it will ask before leaving.
       // Electron has no tabs to lose, and there the guard would silently block closing the window.
@@ -184,6 +190,7 @@ export class App {
       saveSettings(s);
       this.input.wheelMode = s.wheel;
       this.audio.setVolume(s.volume);
+      this.announcer.setPack(s.announcer);
       this.renderer.applySettings();
       this.hud.applySettings();
     };
@@ -502,7 +509,17 @@ export class App {
         this.audio.swoosh(this.soundPos(e.player), e.hit);
         break;
       case 'kill':
-        if (e.killer === this.local && e.victim !== this.local && e.headshot) this.audio.ui(1400);
+        if (e.killer === this.local && e.victim !== this.local) {
+          if (e.headshot) this.audio.ui(1400);
+          this.killTimes = this.killTimes.filter((t) => this.game.time - t < 4);
+          this.killTimes.push(this.game.time);
+          if (this.killTimes.length >= 3) this.announcer.say('multikill', 4);
+          else if (e.headshot) this.announcer.say('headshot', 3);
+        }
+        if (e.victim !== this.local && e.victim.team === this.local.team && this.local.alive && this.defusal?.phase === 'live') {
+          const mates = this.game.players.filter((p) => p.team === this.local.team && p.alive);
+          if (mates.length === 1) this.announcer.say('lastalive', 30);
+        }
         if (e.victim === this.local) {
           this.deathTime = this.game.time;
           this.specTarget = null;
@@ -510,12 +527,18 @@ export class App {
         }
         break;
       case 'grenade':
-        if (e.player.team === this.local.team && e.player !== this.local && e.player.isBot) this.game.emit({ type: 'radio', player: e.player, text: 'Fire in the hole!' });
+        if (e.player.team === this.local.team && e.player !== this.local && e.player.isBot) {
+          this.hud.chat(`(RADIO) ${e.player.name}: Fire in the hole!`, e.player.team);
+          this.announcer.say('fireinhole', 3);
+        }
         break;
       case 'flash':
         this.audio.explosion(e.pos, false);
         // The flash itself resolves in the same tick, so the local player's blindness is already set.
-        if (this.local.flashUntil > this.game.time + 1) this.audio.ring(this.local.flashStrength);
+        if (this.local.flashUntil > this.game.time + 1) {
+          this.audio.ring(this.local.flashStrength);
+          this.announcer.say('flashed', 10);
+        }
         this.effects.explosion(e.pos, false);
         break;
       case 'smoke':
@@ -523,7 +546,7 @@ export class App {
         break;
       case 'radio':
         this.hud.chat(`(RADIO) ${e.player.name}: ${e.text}`, e.player.team);
-        if (e.player.team === this.local.team) this.audio.radio(e.text);
+        if (e.player.team === this.local.team) this.announcer.say(e.text.startsWith('Fall') || e.text.startsWith('Rotat') ? 'rotate' : 'spotted', 4);
         break;
       case 'respawn':
         if (e.player === this.local) {
@@ -541,22 +564,23 @@ export class App {
           this.specTarget = null;
           this.hud.message(`Round ${e.round}`, 2);
         } else if (e.phase === 'live') {
-          this.audio.radio(GO_LINES[Math.floor(Math.random() * GO_LINES.length)]);
+          this.announcer.say('go', 1);
         } else if (e.phase === 'matchover') {
           const d = this.defusal!;
           const w = d.score.T > d.score.CT ? 'Terrorists' : 'Counter-Terrorists';
           this.hud.message(`${w} win the match ${Math.max(d.score.T, d.score.CT)}-${Math.min(d.score.T, d.score.CT)}!`, 9, '#ffd24a');
+          this.announcer.say(d.score.T > d.score.CT === (this.local.team === 'T') ? 'matchwin' : 'matchlose', 1);
         }
         break;
       case 'roundEnd': {
         const text = e.reason === 'bomb' ? 'Target Successfully Bombed!' : e.reason === 'defuse' ? 'Bomb Defused!' : e.winner === 'T' ? 'Terrorists Win!' : 'Counter-Terrorists Win!';
         this.hud.message(text, 4.5, e.winner === 'T' ? '#ff7a5a' : '#8ab8ff');
-        this.audio.radio(e.reason === 'defuse' ? 'Bomb has been defused.' : e.winner === 'T' ? 'Terrorists win!' : 'Counter-Terrorists win!');
+        this.announcer.say(e.reason === 'defuse' ? 'defused' : e.winner === 'T' ? 'terwin' : 'ctwin', 1);
         break;
       }
       case 'planted':
         this.hud.message('The bomb has been planted!', 3, '#ff7a5a');
-        this.audio.radio('The bomb has been planted.');
+        this.announcer.say('planted', 1);
         break;
       case 'explosion': {
         this.effects.explosion(e.pos, e.big);
@@ -566,7 +590,13 @@ export class App {
         break;
       }
       case 'sound':
-        if (e.name === 'bounce') this.audio.click(e.pos, 900, 0.25);
+        if (e.name === 'bounce') {
+          if (!this.audio.sampleFor('bounce', e.pos)) this.audio.click(e.pos, 900, 0.25);
+        } else if (e.name === 'plant_start') {
+          if (!this.audio.sampleFor('plant', e.pos)) this.audio.click(e.pos, 1500, 0.4);
+        } else if (e.name === 'defuse' || e.name === 'defuse_kit') {
+          if (!this.audio.sampleFor('defuse', e.pos)) this.audio.click(e.pos, 1500, 0.4);
+        }
         else if (e.name === 'c4_beep') {
           this.audio.beep(e.pos);
           this.bombBlink = 0.1;

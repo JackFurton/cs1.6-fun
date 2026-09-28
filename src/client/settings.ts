@@ -6,6 +6,7 @@ export interface Settings {
   /** Horizontal FOV at 4:3; wider screens get more (Hor+), like 1.6 in widescreen. */
   fov: number;
   volume: number;
+  announcer: 'classic' | 'chef' | 'off';
   showFps: boolean;
   /** Graphics preset: lightmap detail, antialiasing, and how far to follow high-DPI screens. */
   quality: 'low' | 'medium' | 'high';
@@ -29,6 +30,7 @@ const DEFAULTS: Settings = {
   rawInput: true,
   fov: 90,
   volume: 0.6,
+  announcer: 'classic',
   showFps: true,
   quality: 'medium',
   renderScale: 1,
