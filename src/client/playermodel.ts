@@ -5,11 +5,17 @@ import type { Player } from '../game/player';
 import type { WeaponId } from '../game/weapons';
 import type { Team } from '../maps/types';
 import { skinFor, type Skin } from './skins';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { buildWeaponModel } from './weaponmodel';
 
-const box = new THREE.BoxGeometry(1, 1, 1);
-// Pivot at the top so limbs rotate from hip, knee and shoulder.
-const hangBox = new THREE.BoxGeometry(1, 1, 1).translate(0, -0.5, 0);
+// Shared geometry, all unit-sized and scaled per part. Rounded and tapered so bodies read as
+// people rather than stacked blocks.
+const rbox = new RoundedBoxGeometry(1, 1, 1, 3, 0.22);
+const sphere = new THREE.SphereGeometry(0.5, 14, 10);
+const dome = new THREE.SphereGeometry(0.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+// Limbs hang from their top so they rotate at hip, knee, shoulder and elbow; slightly tapered.
+const limb = new THREE.CylinderGeometry(0.5, 0.42, 1, 12, 1).translate(0, -0.5, 0);
+const disc = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
 const DOWN = new THREE.Vector3(0, -1, 0);
 
 const THIGH = 17;
@@ -60,11 +66,11 @@ function blobMaterial(): THREE.MeshBasicMaterial {
   return blobMat;
 }
 
-function mat(color: number): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({ color });
+function mat(color: number, map?: THREE.Texture): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({ color: map ? 0xffffff : color, map: map ?? null });
 }
 
-function part(parent: THREE.Object3D, m: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number, geo = box): THREE.Mesh {
+function part(parent: THREE.Object3D, m: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number, geo: THREE.BufferGeometry = rbox): THREE.Mesh {
   const mesh = new THREE.Mesh(geo, m);
   mesh.scale.set(w, h, d);
   mesh.position.set(x, y, z);
@@ -72,40 +78,113 @@ function part(parent: THREE.Object3D, m: THREE.Material, w: number, h: number, d
   return mesh;
 }
 
-/** Head centred on the origin, face toward -z, with the skin's headgear. */
+const camoCache = new Map<number, THREE.Texture>();
+
+/** Blotchy camo in shades of the base colour, so uniforms aren't flat plastic. */
+function camo(base: number): THREE.Texture {
+  const hit = camoCache.get(base);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d')!;
+  const col = new THREE.Color(base);
+  ctx.fillStyle = `#${col.getHexString()}`;
+  ctx.fillRect(0, 0, 64, 64);
+  let seed = base;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296;
+  for (const k of [0.78, 1.18, 0.9]) {
+    ctx.fillStyle = `#${col.clone().multiplyScalar(k).getHexString()}`;
+    for (let i = 0; i < 7; i++) {
+      const x = rnd() * 64;
+      const y = rnd() * 64;
+      const rx = 4 + rnd() * 8;
+      const ry = 3 + rnd() * 5;
+      const rot = rnd() * Math.PI;
+      // Wrapped copies so the pattern tiles.
+      for (const [ox, oy] of [
+        [0, 0],
+        [-64, 0],
+        [0, -64],
+        [-64, -64],
+      ]) {
+        ctx.beginPath();
+        ctx.ellipse(x + ox, y + oy, rx, ry, rot, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  const img = ctx.getImageData(0, 0, 64, 64);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = 0.92 + rnd() * 0.16;
+    img.data[i] *= n;
+    img.data[i + 1] *= n;
+    img.data[i + 2] *= n;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.repeat.set(2, 2);
+  camoCache.set(base, tex);
+  return tex;
+}
+
+/** Head with a face, centred on the origin, looking down -z, wearing the skin's headgear. */
 function buildHead(s: Skin): THREE.Group {
   const g = new THREE.Group();
   const skin = mat(s.skin);
   const hat = mat(s.hat);
-  const dark = mat(0x1a1a1a);
+  const dark = mat(0x151515);
   const covered = s.head === 'balaclava' || s.head === 'gasmask';
-  part(g, covered ? hat : skin, 11, 12, 12, 0, 0, 0);
+  // Skull a touch narrower than it is deep, jaw slightly forward.
+  part(g, covered ? hat : skin, 8.6, 10.4, 9.6, 0, 0, 0);
+  part(g, covered ? hat : skin, 7.2, 3.6, 7.4, 0, -4, -1);
+  if (!covered) {
+    part(g, skin, 1.4, 2.4, 1.6, 0, -0.4, -5); // nose
+    part(g, dark, 1.3, 0.9, 0.4, -1.9, 1.2, -4.75, sphere); // eyes
+    part(g, dark, 1.3, 0.9, 0.4, 1.9, 1.2, -4.75, sphere);
+    part(g, mat(0x8a5a48), 3, 0.5, 0.4, 0, -3.3, -4.6); // mouth
+    part(g, skin, 1, 2.6, 1.8, -4.4, 0.4, 0, sphere); // ears
+    part(g, skin, 1, 2.6, 1.8, 4.4, 0.4, 0, sphere);
+  }
   switch (s.head) {
     case 'balaclava':
-      part(g, skin, 8.5, 2.2, 0.6, 0, 1.5, -6.1);
+      part(g, skin, 6.6, 2.2, 0.8, 0, 1.2, -4.6); // eye slit
+      part(g, dark, 1.2, 0.8, 0.4, -1.8, 1.2, -5.05, sphere);
+      part(g, dark, 1.2, 0.8, 0.4, 1.8, 1.2, -5.05, sphere);
       break;
     case 'bandana':
-      part(g, hat, 11.6, 3, 12.6, 0, 4.8, 0);
+      part(g, hat, 9.4, 3.2, 10.2, 0, 3.6, 0.2);
+      part(g, hat, 2, 2.5, 3, 0, 2.6, 5.4); // knot at the back
       break;
     case 'cap':
-      part(g, hat, 12, 3.5, 12.6, 0, 5, 0);
-      part(g, hat, 10, 1, 5, 0, 3.6, -8.2);
+      part(g, hat, 9.8, 4.2, 10.4, 0, 4.2, 0.2, dome);
+      part(g, hat, 8, 0.8, 5, 0, 4.4, -6.2);
       break;
     case 'beret':
-      part(g, hat, 12.5, 2.5, 12.5, 1, 6.5, 0).rotation.z = 0.2;
+      part(g, hat, 11, 3.2, 11, 1.2, 5.6, 0.4, sphere).rotation.z = 0.25;
       break;
     case 'helmet':
-      part(g, hat, 13, 6.5, 13.5, 0, 4.2, 0.4);
+      part(g, hat, 11.6, 7.5, 12, 0, 2.2, 0.3, dome);
+      part(g, hat, 11.8, 1.2, 12.2, 0, 2.2, 0.3, disc); // rim
+      part(g, dark, 0.5, 5.5, 0.6, -4.6, -1.4, -0.2); // chin straps
+      part(g, dark, 0.5, 5.5, 0.6, 4.6, -1.4, -0.2);
       break;
-    case 'gasmask':
-      part(g, dark, 9, 7, 1.5, 0, -1, -6.5);
-      part(g, mat(0x6a7a80), 3, 2.2, 0.6, -2.4, 1.5, -7.4);
-      part(g, mat(0x6a7a80), 3, 2.2, 0.6, 2.4, 1.5, -7.4);
-      part(g, mat(0x333333), 3, 3, 3.5, 0, -4, -8);
+    case 'gasmask': {
+      part(g, mat(0x2a2a2a), 7.4, 6, 3, 0, -1.2, -4.6);
+      const lens = mat(0x6a8490);
+      for (const x of [-2.1, 2.1]) part(g, lens, 2.8, 0.8, 2.8, x, 1.4, -5.8, disc).rotation.x = Math.PI / 2;
+      part(g, mat(0x3a3a3a), 3, 3.4, 3, 0, -3.6, -7, disc).rotation.x = Math.PI / 2;
+      part(g, dark, 9.2, 1, 10, 0, 1, 0.5); // head strap
       break;
+    }
   }
-  if (s.sunglasses) part(g, dark, 9, 2, 0.8, 0, 1.2, -6.2);
-  if (s.goggles) part(g, mat(0x2a2a2a), 10, 2.6, 1.2, 0, 1.6, -6.4);
+  if (s.sunglasses) part(g, dark, 7.6, 1.8, 0.8, 0, 1.2, -4.9);
+  if (s.goggles) {
+    part(g, dark, 9.4, 1, 9.8, 0, 5.2, 0.4); // strap round the helmet
+    const glass = mat(0x3c4c56);
+    for (const x of [-2, 2]) part(g, glass, 3.2, 2.2, 1.2, x, 5.4, -5);
+  }
   return g;
 }
 
@@ -133,6 +212,10 @@ export class PlayerModel {
   private legs: Leg[] = [];
   private stomach!: THREE.Mesh;
   private chest!: THREE.Mesh;
+  private belt!: THREE.Mesh;
+  private pouches = new THREE.Group();
+  private neck!: THREE.Mesh;
+  private elbows: THREE.Mesh[] = [];
   private head: THREE.Group = new THREE.Group();
   private armL!: Arm;
   private armR!: Arm;
@@ -161,43 +244,53 @@ export class PlayerModel {
     this.hips.clear();
     this.torso = new THREE.Group();
     this.legs = [];
-    const pants = mat(s.pants);
+    const pants = mat(s.pants, camo(s.pants));
     const boots = mat(0x1e1c18);
+    const vest = mat(s.vest);
+    const shirt = mat(s.shirt, camo(s.shirt));
+    const gear = mat(0x2a2822);
+    const glove = mat(s.gloves);
     const [lw] = BODY_HALF.legs;
     for (const side of [-1, 1]) {
       // Joints are plain groups so the scaled limb meshes don't pass their scale down the chain.
       const hip = new THREE.Group();
       hip.position.set(side * lw * 0.5, 0, 0);
       this.hips.add(hip);
-      part(hip, pants, lw * 0.85, THIGH, 8, 0, 0, 0, hangBox);
+      part(hip, pants, 8, THIGH, 8.4, 0, 0, 0, limb);
       const knee = new THREE.Group();
       knee.position.set(0, -THIGH, 0);
       hip.add(knee);
-      part(knee, pants, lw * 0.8, SHIN, 7.5, 0, 0, 0, hangBox);
+      part(knee, pants, 6.8, 6.8, 6.8, 0, 0, 0, sphere);
+      part(knee, pants, 6.6, SHIN, 7, 0, 0, 0, limb);
       // Feet hang off an ankle joint so they can stay flat on the floor.
       const ankle = new THREE.Group();
       ankle.position.set(0, -SHIN, 0);
       knee.add(ankle);
-      part(ankle, boots, lw * 0.9, FOOT, 11, 0, -FOOT / 2, -2);
+      part(ankle, boots, 6, 4, 6.2, 0, 0.5, 0);
+      part(ankle, boots, 6.2, FOOT + 1, 11, 0, -FOOT / 2, -2.2);
       this.legs.push({ hip, knee, ankle });
     }
     this.hips.add(this.torso);
-    this.stomach = part(this.torso, mat(s.shirt), 1, 1, 1, 0, 0, 0);
-    this.chest = part(this.torso, mat(s.vest), 1, 1, 1, 0, 0, 0);
+    // Torso: shirt underneath, vest over the chest, belt with pouches, neck.
+    this.stomach = part(this.torso, shirt, 1, 1, 1, 0, 0, 0);
+    this.chest = part(this.torso, vest, 1, 1, 1, 0, 0, 0);
+    this.belt = part(this.torso, gear, 1, 1, 1, 0, 0, 0);
+    this.pouches = new THREE.Group();
+    for (const x of [-5.5, 0, 5.5]) part(this.pouches, gear, 4.2, 5, 2.4, x, 0, 0);
+    this.torso.add(this.pouches);
+    this.neck = part(this.torso, mat(s.skin), 4.6, 4, 4.6, 0, 0, 0, disc);
     this.head = buildHead(s);
     this.torso.add(this.head);
-    const sleeve = mat(s.shirt);
-    const vest = mat(s.vest);
-    const glove = mat(s.gloves);
     const arm = (): Arm => ({
-      upper: part(this.torso, sleeve, 4.6, 1, 4.6, 0, 0, 0, hangBox),
-      fore: part(this.torso, sleeve, 4, 1, 4, 0, 0, 0, hangBox),
-      hand: part(this.torso, glove, 3.6, 3.6, 3.6, 0, 0, 0),
+      upper: part(this.torso, shirt, 5, 1, 5, 0, 0, 0, limb),
+      fore: part(this.torso, shirt, 4.4, 1, 4.4, 0, 0, 0, limb),
+      hand: part(this.torso, glove, 3.4, 4, 3, 0, 0, 0),
     });
     this.armL = arm();
     this.armR = arm();
-    // Shoulder pads so the arms join the torso instead of floating beside it.
-    for (const side of [-1, 1]) part(this.torso, vest, 6, 5, 8, side * 9, 0, 0).name = side < 0 ? 'padL' : 'padR';
+    // Round shoulders and elbows so the arms grow out of the torso instead of floating.
+    for (const side of [-1, 1]) part(this.torso, shirt, 7, 7, 7, side * 9, 0, 0, sphere).name = side < 0 ? 'padL' : 'padR';
+    this.elbows = [part(this.torso, shirt, 4.8, 4.8, 4.8, 0, 0, 0, sphere), part(this.torso, shirt, 4.8, 4.8, 4.8, 0, 0, 0, sphere)];
     this.torso.add(this.gunHolder);
     this.gunId = null;
     // Remember each material's own colour so lighting can scale it without drifting.
@@ -269,10 +362,14 @@ export class PlayerModel {
     const [cw, cd] = BODY_HALF.chest;
     const [hw] = BODY_HALF.head;
     this.stomach.position.set(0, (s0 + s1) / 2 - hipY, 0);
-    this.stomach.scale.set(sw * 2, s1 - s0, sd * 2);
-    this.chest.position.set(0, (c0 + c1) / 2 - hipY, 0);
-    this.chest.scale.set(cw * 2 - 3, c1 - c0, cd * 2);
-    this.head.position.set(0, (h0 + h1) / 2 - hipY, -1);
+    this.stomach.scale.set(sw * 2 - 1, s1 - s0 + 4, sd * 2 - 1);
+    this.chest.position.set(0, (c0 + c1) / 2 - hipY, -0.3);
+    this.chest.scale.set(cw * 2 - 1.5, c1 - c0 + 1, cd * 2 + 0.6);
+    this.belt.position.set(0, s0 - hipY + 1, 0);
+    this.belt.scale.set(sw * 2 + 0.4, 2.4, sd * 2 + 0.4);
+    this.pouches.position.set(0, (c0 + c1) / 2 - hipY - 2, -cd - 0.8);
+    this.neck.position.set(0, c1 - hipY + 1, -0.5);
+    this.head.position.set(0, (h0 + h1) / 2 - hipY + 0.5, -1);
     this.head.scale.setScalar(Math.min(1, (hw * 2) / 11));
     this.torso.rotation.x = -0.12 * sf - p.pitch * DEG * 0.15;
     // A little shoulder twist with each stride.
@@ -303,8 +400,8 @@ export class PlayerModel {
     const fore = new THREE.Vector3(0, 0, long ? -9 : 0).applyMatrix4(this.gunHolder.matrix);
     if (!long) fore.x -= 2.5;
     // Elbows bend down and out, the way you'd hold a rifle.
-    this.ik(this.armR, new THREE.Vector3(cw - 1, shoulderY, 0), grip, new THREE.Vector3(1, -1, 0.3));
-    this.ik(this.armL, new THREE.Vector3(-(cw - 1), shoulderY, 0), fore, new THREE.Vector3(-1, -1.2, 0.2));
+    this.elbows[0].position.copy(this.ik(this.armR, new THREE.Vector3(cw - 1, shoulderY, 0), grip, new THREE.Vector3(1, -1, 0.3)));
+    this.elbows[1].position.copy(this.ik(this.armL, new THREE.Vector3(-(cw - 1), shoulderY, 0), fore, new THREE.Vector3(-1, -1.2, 0.2)));
 
     if (!p.alive) {
       if (this.deathTime < 0) {
@@ -322,7 +419,7 @@ export class PlayerModel {
   }
 
   /** Two-bone IK: place the elbow so upper arm and forearm reach from shoulder to hand, bending toward `pole`. */
-  private ik(arm: Arm, shoulder: THREE.Vector3, hand: THREE.Vector3, pole: THREE.Vector3): void {
+  private ik(arm: Arm, shoulder: THREE.Vector3, hand: THREE.Vector3, pole: THREE.Vector3): THREE.Vector3 {
     const toHand = hand.clone().sub(shoulder);
     const d = Math.min(toHand.length(), UPPER_ARM + FOREARM - 0.01);
     const dir = toHand.normalize();
@@ -335,6 +432,8 @@ export class PlayerModel {
     this.bone(arm.upper, shoulder, elbow);
     this.bone(arm.fore, elbow, reachHand);
     arm.hand.position.copy(reachHand);
+    arm.hand.quaternion.copy(arm.fore.quaternion);
+    return elbow;
   }
 
   private bone(m: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3): void {
