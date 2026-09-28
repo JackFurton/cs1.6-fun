@@ -137,6 +137,24 @@ function planks(ctx: Ctx, rnd: () => number, base: number, count: number, vertic
 const DEFS: Record<string, TexDef> = {
   sand: { scale: 128, draw: (c, r) => noiseFill(c, r, 0xc4a870, 0.35, 0.12) },
   snow: { scale: 128, draw: (c, r) => noiseFill(c, r, 0xe4ecf2, 0.12, 0.06) },
+  // Ankle-deep canal water: walkable, just looks wet.
+  water: {
+    scale: 128,
+    draw: (c, r) => {
+      noiseFill(c, r, 0x2e5a66, 0.35, 0.05, [2, 4]);
+      c.strokeStyle = 'rgba(200,230,235,0.18)';
+      c.lineWidth = 2;
+      for (let i = 0; i < 12; i++) {
+        const y = r() * SIZE;
+        const x = r() * SIZE;
+        c.beginPath();
+        c.moveTo(x, y);
+        c.quadraticCurveTo(x + 12, y - 4, x + 24, y);
+        c.stroke();
+      }
+    },
+  },
+  planks_dock: { scale: 128, draw: (c, r) => planks(c, r, 0x7a5a3a, 8, true) },
   ice: {
     scale: 128,
     draw: (c, r) => {
