@@ -8,3 +8,4 @@ playwright-report/
 .DS_Store
 # Your own sound files (e.g. cstrike/sound from a 1.6 install). Never committed.
 public/sounds/
+dist-server/

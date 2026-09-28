@@ -8,6 +8,8 @@ import type { GameEvent } from '../game/events';
 import { DroppedWeapon, Game, TICK_DT } from '../game/game';
 import type { BuyItem, GameMode } from '../game/mode';
 import { Player } from '../game/player';
+import type { ServerInfo } from '../net/protocol';
+import { NetClient } from './netclient';
 import { BombDefusal, DEFUSE_TIME, DEFUSE_TIME_KIT, PLANT_TIME } from '../game/rules';
 import type { Slot, WeaponId } from '../game/weapons';
 import { WEAPONS } from '../game/weapons';
@@ -94,7 +96,10 @@ export class App {
   private roamPos = new Vec3();
   private tr = new Trace();
 
-  constructor(root: HTMLElement, params: URLSearchParams) {
+  /** Set when playing on a server; the sim then lives there and this client predicts and draws. */
+  readonly net: NetClient | null = null;
+
+  constructor(root: HTMLElement, params: URLSearchParams, remote?: { ws: WebSocket; info: ServerInfo }) {
     const mapNames = Object.keys(MAPS);
     this.options = readNewGame(params, mapNames);
     const map = MAPS[this.options.map]();
@@ -120,7 +125,8 @@ export class App {
       if (!this.started || !this.local.alive) return;
       this.hud.chat(`(RADIO) ${this.local.name}: ${radioText(cmd)}`, this.local.team);
       this.audio.click(null, 1100, 0.15);
-      this.bots.command(this.local, cmd);
+      if (this.net) this.net.send({ t: 'radio', cmd });
+      else this.bots.command(this.local, cmd);
     };
     this.buyMenu = new BuyMenu(root);
     const cards = mapNames.map((name) => ({ name, image: renderMapImage(MAPS[name](), 256).canvas.toDataURL() }));
@@ -135,9 +141,36 @@ export class App {
     this.root = root;
     this.params = params;
     root.classList.add('pregame');
-    if (this.options.team !== 'choose') this.startMatch(this.options.team, this.options.model);
+    if (remote) {
+      // Network game: rules object mirrors the server's for the HUD and buy checks; it never ticks.
+      this.mode = remote.info.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
+      this.net = new NetClient(remote.ws, remote.info, this.game, this.mode);
+      this.net.onWelcome = (p) => {
+        this.local = p;
+        this.yaw = p.yaw;
+        this.pitch = 0;
+        if (!this.started) {
+          this.started = true;
+          this.menu.started = true;
+          root.classList.remove('pregame');
+          this.menu.show(false);
+          this.menu.onPlay();
+        }
+      };
+      this.net.onBuyResult = (err) => {
+        if (err) this.hud.message(err, 1.5);
+      };
+      this.net.onChat = (from, text) => from && this.hud.chat(`${from.name}: ${text}`, from.team);
+      this.net.onClose = () => this.hud.error('Disconnected from the server. Reload to rejoin.');
+    } else if (this.options.team !== 'choose') this.startMatch(this.options.team, this.options.model);
     this.menu.show(params.has('nomenu') ? false : 'main');
     this.menu.onJoin = (team, model) => {
+      if (this.net) {
+        if (team === 'spec') return;
+        this.net.send(this.started ? { t: 'team', team, model } : { t: 'hello', name: this.settings.name, team, model });
+        this.menu.show(false);
+        return;
+      }
       if (!this.started) {
         this.startMatch(team, model);
         this.menu.show(false);
@@ -153,7 +186,7 @@ export class App {
     this.autoFire = params.has('fire');
 
     this.buyMenu.onBuy = (item) => {
-      const err = this.mode.buy(this.local, item);
+      const err = this.buyItem(item);
       if (!err) {
         this.audio.click(null, 900, 0.3);
         this.purchases.push(item);
@@ -322,6 +355,13 @@ export class App {
     }, 300);
   }
 
+  /** Buying is the server's call in network games; the snapshot brings the result back. */
+  private buyItem(item: BuyItem): string | null {
+    if (!this.net) return this.mode.buy(this.local, item);
+    this.net.send({ t: 'buy', item });
+    return null;
+  }
+
   /** Buy last round's loadout again, skipping anything already owned. */
   private rebuy(): string | null {
     const list = this.lastPurchases.length ? this.lastPurchases : this.purchases;
@@ -329,7 +369,7 @@ export class App {
     let err: string | null = null;
     for (const item of list) {
       if (owns(this.local, item)) continue;
-      const e = this.mode.buy(this.local, item);
+      const e = this.buyItem(item);
       if (e) err = e;
       else this.purchases.push(item);
     }
@@ -377,12 +417,15 @@ export class App {
     this.acc += dt;
     while (this.acc >= TICK_DT) {
       this.buildLocalCmd();
-      this.bots.update(TICK_DT);
-      this.game.tick();
+      if (this.net) this.net.tick(this.local.cmd);
+      else {
+        this.bots.update(TICK_DT);
+        this.game.tick();
+      }
       this.input.endTick();
       this.acc -= TICK_DT;
     }
-    for (const e of this.game.takeEvents()) this.onEvent(e);
+    for (const e of this.net ? this.net.takeEvents() : this.game.takeEvents()) this.onEvent(e);
     this.draw(this.acc / TICK_DT, dt, zoomFov);
   }
 

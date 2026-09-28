@@ -20,3 +20,5 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium-headless-shell
       - run: node scripts/smoke.mjs 'fire&give=ak47&pos=600,1,0&yaw=90&walk' 'fire&give=awp' 'mode=dm&fire' 'team=T&fire' 'map=de_cache&fire' 'map=aim_arena&mode=dm' 'team=spec&difficulty=expert' 'map=fy_iceworld&team=T' 'map=de_inferno&team=spec'
+      - run: npm run build:server
+      - run: node scripts/netsmoke.mjs
