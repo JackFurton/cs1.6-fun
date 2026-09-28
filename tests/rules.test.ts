@@ -206,3 +206,26 @@ describe('1.6 details', () => {
     expect(p.weapon!.clip).toBeLessThan(30);
   });
 });
+
+describe('match stats', () => {
+  test('damage, assists, headshots and MVP', () => {
+    const { g, r } = setup();
+    run(g, 1.1);
+    const [ct0, ct1] = team(g, 'CT');
+    const [t0, t1] = team(g, 'T');
+    const dir = new Vec3(0, 0, 1);
+    // ct1 softens t0 up for 50, ct0 finishes him with a headshot.
+    g.damage(t0, ct1, 50, null, 'ak47', dir, false);
+    g.damage(t0, ct0, 100, 'head', 'deagle', dir, false);
+    g.kill(t1, ct0, 'ak47', false, false);
+    g.tick();
+    expect(ct1.damageDealt).toBe(50);
+    // Only the 50 health t0 had left counts; overkill doesn't pad ADR.
+    expect(ct0.damageDealt).toBe(50);
+    expect(ct1.assists).toBe(1);
+    expect(ct0.headshots).toBe(1);
+    expect(r.history).toHaveLength(1);
+    expect(r.history[0].mvp).toBe(ct0);
+    expect(ct0.mvps).toBe(1);
+  });
+});

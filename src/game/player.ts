@@ -52,6 +52,14 @@ export class Player {
   money = 800;
   kills = 0;
   deaths = 0;
+  assists = 0;
+  headshots = 0;
+  mvps = 0;
+  /** Health actually taken off enemies (overkill doesn't count), for ADR. */
+  damageDealt = 0;
+  roundKills = 0;
+  /** Damage each attacker did to us this life, for assists. */
+  damageFrom = new Map<Player, number>();
   /** 1.6 "tagging": getting shot drops this to 0.5 and it recovers 0.01 per tick while slowing you. */
   velocityModifier = 1;
   noclip = false;

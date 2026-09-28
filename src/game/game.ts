@@ -92,6 +92,7 @@ export class Game {
     p.punchPitch = p.punchYaw = 0;
     p.alive = true;
     p.health = 100;
+    p.damageFrom.clear();
     p.velocityModifier = 1;
     p.flashUntil = 0;
     if (!p.weapons.knife) p.resetLoadout();
@@ -230,6 +231,11 @@ export class Game {
       victim.armor = Math.max(0, Math.round(victim.armor - r.armor));
     }
     const amount = Math.max(1, Math.floor(dmg));
+    if (attacker && attacker !== victim) {
+      const real = Math.min(amount, Math.max(0, victim.health));
+      attacker.damageDealt += real;
+      victim.damageFrom.set(attacker, (victim.damageFrom.get(attacker) ?? 0) + real);
+    }
     victim.health -= amount;
     victim.lastDamageTime = this.time;
     if (attacker && attacker !== victim) victim.lastAttacker = attacker;
@@ -244,8 +250,14 @@ export class Game {
     victim.alive = false;
     victim.health = 0;
     victim.deaths++;
-    if (killer && killer !== victim) killer.kills++;
-    else if (killer === victim || !killer) victim.kills--;
+    if (killer && killer !== victim) {
+      killer.kills++;
+      killer.roundKills++;
+      if (headshot) killer.headshots++;
+    } else if (killer === victim || !killer) victim.kills--;
+    // 1.6 has no assists; CS:GO's rule is 41+ damage to someone a teammate finished.
+    for (const [who, dmg] of victim.damageFrom) if (who !== killer && who.team !== victim.team && dmg > 40) who.assists++;
+    victim.damageFrom.clear();
     // Drop the best gun, as 1.6 does on death.
     const slot: Slot | null = victim.weapons.primary ? 'primary' : victim.weapons.secondary ? 'secondary' : null;
     if (slot) this.dropSlot(victim, slot, 0);
