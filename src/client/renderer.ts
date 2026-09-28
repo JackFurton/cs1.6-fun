@@ -49,7 +49,7 @@ export class Renderer {
     this.toSun = lp.sunDir.clone().scale(-1);
     this.toSun.normalize();
 
-    this.world = new CollisionWorld(map.brushes);
+    this.world = new CollisionWorld(map.brushes.filter((b) => !b.clip), { includeDetail: true });
     const flat = lightmapTexture(1, new Uint8Array([171, 171, 171, 255]));
     const meshes = buildMapMeshes(map.brushes, this.gl.capabilities.getMaxAnisotropy(), q.luxel, flat);
     this.scene.add(meshes.group);
@@ -69,14 +69,34 @@ export class Renderer {
     const key = bakeKey(map, layout.luxel);
     let data = await loadCachedBake(key);
     if (!data || data.length !== layout.size * layout.size * 4) {
-      // Give the page a frame to show something first; the bake itself is synchronous.
-      await new Promise((r) => setTimeout(r, 30));
-      const t0 = performance.now();
-      data = bakeLightmap(layout, this.world, lp);
-      console.info(`baked lightmap ${layout.size}px at ${layout.luxel}u in ${Math.round(performance.now() - t0)}ms`);
+      data = await this.bakeInWorker(map.name, layout.luxel, layout.size).catch(() => null);
+      if (!data) {
+        // No worker (old browser, blocked): bake here, after giving the page a frame to show.
+        await new Promise((r) => setTimeout(r, 30));
+        const t0 = performance.now();
+        data = bakeLightmap(layout, this.world, lp);
+        console.info(`baked lightmap on main thread in ${Math.round(performance.now() - t0)}ms`);
+      }
       void saveCachedBake(key, data);
     }
     meshes.setLightmap(lightmapTexture(layout.size, data));
+  }
+
+  private bakeInWorker(map: string, luxel: number, size: number): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      const w = new Worker(new URL('./bakeworker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<{ data: Uint8Array; size: number; ms: number }>) => {
+        w.terminate();
+        if (e.data.size !== size) return reject(new Error('layout mismatch'));
+        console.info(`baked lightmap ${size}px at ${luxel}u in ${Math.round(e.data.ms)}ms (worker)`);
+        resolve(e.data.data);
+      };
+      w.onerror = (err) => {
+        w.terminate();
+        reject(err);
+      };
+      w.postMessage({ map, luxel });
+    });
   }
 
   /** 0..1: how much direct sun reaches a point, for lighting players and guns to match the map. */

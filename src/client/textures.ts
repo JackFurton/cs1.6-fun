@@ -283,6 +283,91 @@ const DEFS: Record<string, TexDef> = {
     },
   },
   trim: { scale: 64, draw: (c, r) => noiseFill(c, r, 0x5c5046, 0.2, 0.1) },
+  // Pale sandstone ledges and caps along wall tops and bases.
+  trim_sand: {
+    scale: 64,
+    draw: (c, r) => {
+      noiseFill(c, r, 0xd8c49a, 0.18, 0.08, [2, 4]);
+      c.fillStyle = 'rgba(90,70,40,0.35)';
+      c.fillRect(0, SIZE - 6, SIZE, 6);
+      c.fillRect(0, 0, SIZE, 2);
+    },
+  },
+  trim_grey: { scale: 64, draw: (c, r) => noiseFill(c, r, 0x8c8c86, 0.15, 0.08, [2, 4]) },
+  sandbag: {
+    scale: 32,
+    draw: (c, r) => {
+      rect(c, 0, 0, SIZE, SIZE, 'rgb(70,62,48)');
+      for (let row = 0; row < 4; row++)
+        for (let col = -1; col < 3; col++) {
+          const x = col * 64 + (row % 2 ? 32 : 0);
+          const g = c.createRadialGradient(x + 32, row * 32 + 16, 4, x + 32, row * 32 + 16, 34);
+          g.addColorStop(0, 'rgb(168,150,112)');
+          g.addColorStop(1, 'rgb(110,96,70)');
+          c.fillStyle = g;
+          c.beginPath();
+          c.ellipse(x + 32, row * 32 + 16, 30, 14, 0, 0, Math.PI * 2);
+          c.fill();
+        }
+      grime(c, r, 0.25, 0.08);
+    },
+  },
+  barrel_red: { scale: 64, draw: (c, r) => barrel(c, r, 0x8a2e24) },
+  barrel_blue: { scale: 64, draw: (c, r) => barrel(c, r, 0x2e4a7a) },
+  barrel_rust: { scale: 64, draw: (c, r) => barrel(c, r, 0x6a4a30) },
+  beam: { scale: 64, draw: (c, r) => planks(c, r, 0x4e3620, 2, false) },
+  roof_tile: {
+    scale: 64,
+    draw: (c, r) => {
+      rect(c, 0, 0, SIZE, SIZE, 'rgb(120,60,40)');
+      for (let y = 0; y < SIZE; y += 16)
+        for (let x = (y / 16) % 2 ? -16 : 0; x < SIZE; x += 32) {
+          const k = 0.8 + r() * 0.35;
+          c.fillStyle = rgb(160 * k, 80 * k, 55 * k);
+          c.beginPath();
+          c.ellipse(x + 16, y + 12, 15, 10, 0, 0, Math.PI);
+          c.fill();
+        }
+      grime(c, r, 0.3, 0.06);
+    },
+  },
+  car_white: { scale: 128, draw: (c, r) => noiseFill(c, r, 0xd8d8d0, 0.1, 0.03, [2, 4]) },
+  car_green: { scale: 128, draw: (c, r) => noiseFill(c, r, 0x4a6a4a, 0.12, 0.04, [2, 4]) },
+  tire: { scale: 32, draw: (c, r) => noiseFill(c, r, 0x1c1c1c, 0.2, 0.1) },
+  window_dark: {
+    scale: 64,
+    draw: (c) => {
+      rect(c, 0, 0, SIZE, SIZE, 'rgb(28,30,34)');
+      c.fillStyle = 'rgba(160,180,200,0.18)';
+      c.fillRect(12, 8, 30, SIZE - 16);
+      c.strokeStyle = 'rgb(70,56,40)';
+      c.lineWidth = 8;
+      c.strokeRect(4, 4, SIZE - 8, SIZE - 8);
+      c.beginPath();
+      c.moveTo(SIZE / 2, 0);
+      c.lineTo(SIZE / 2, SIZE);
+      c.stroke();
+    },
+  },
+  plaster_blue: { scale: 128, draw: (c, r) => noiseFill(c, r, 0x7a9ab4, 0.25, 0.06, [2, 4, 8]) },
+  plaster_white: { scale: 128, draw: (c, r) => noiseFill(c, r, 0xe0dccc, 0.2, 0.06, [2, 4, 8]) },
+  plaster_orange: { scale: 128, draw: (c, r) => noiseFill(c, r, 0xd89a60, 0.25, 0.06, [2, 4, 8]) },
+  cobble: {
+    scale: 96,
+    draw: (c, r) => {
+      rect(c, 0, 0, SIZE, SIZE, 'rgb(70,64,56)');
+      for (let i = 0; i < 70; i++) {
+        const x = r() * SIZE;
+        const y = r() * SIZE;
+        const k = 0.75 + r() * 0.4;
+        c.fillStyle = rgb(150 * k, 140 * k, 120 * k);
+        c.beginPath();
+        c.ellipse(x, y, 8 + r() * 6, 6 + r() * 4, r() * Math.PI, 0, Math.PI * 2);
+        c.fill();
+      }
+      grime(c, r, 0.3, 0.1);
+    },
+  },
   hazard: {
     scale: 64,
     draw: (c) => {
@@ -318,6 +403,20 @@ const DEFS: Record<string, TexDef> = {
     },
   },
 };
+
+function barrel(c: Ctx, r: () => number, base: number): void {
+  const [cr, cg, cb] = hexRgb(base);
+  for (let x = 0; x < SIZE; x++) {
+    const k = 0.75 + 0.3 * Math.sin((x / SIZE) * Math.PI);
+    rect(c, x, 0, 1, SIZE, rgb(cr * k, cg * k, cb * k));
+  }
+  // Hoops.
+  for (const y of [SIZE * 0.3, SIZE * 0.7]) {
+    c.fillStyle = 'rgba(20,20,20,0.5)';
+    c.fillRect(0, y - 3, SIZE, 6);
+  }
+  grime(c, r, 0.35, 0.08);
+}
 
 function corrugated(c: Ctx, r: () => number, base: number): void {
   const [cr, cg, cb] = hexRgb(base);

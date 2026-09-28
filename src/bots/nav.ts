@@ -51,7 +51,7 @@ export class NavGraph {
     let maxZ = -Infinity;
     let maxY = -Infinity;
     let minY = Infinity;
-    for (const b of this.map.brushes) {
+    for (const b of this.world.brushes) {
       minX = Math.min(minX, b.min.x);
       minZ = Math.min(minZ, b.min.z);
       maxX = Math.max(maxX, b.max.x);

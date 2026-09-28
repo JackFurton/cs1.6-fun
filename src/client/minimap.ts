@@ -16,7 +16,7 @@ export function renderMapImage(map: MapData, maxPx = 1024): MapImage {
   let maxZ = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  const floors = map.brushes.filter((b) => !b.clip);
+  const floors = map.brushes.filter((b) => !b.clip && !b.detail);
   for (const b of floors) {
     minX = Math.min(minX, b.min.x);
     minZ = Math.min(minZ, b.min.z);
