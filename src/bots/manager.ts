@@ -198,7 +198,10 @@ export class BotManager {
     } else {
       this.contacts.push({ pos: pos.clone(), time: now, enemy });
       // Only call out real threats, not a speck at the far end of a sightline.
-      if (!heardAt && enemy.origin.distanceTo(by.origin) < 2000) this.radio(by, 'Enemy spotted!');
+      if (!heardAt && enemy.origin.distanceTo(by.origin) < 2000) {
+        const area = this.nav.nearest(enemy.origin)?.area;
+        this.radio(by, area ? `Enemy spotted, ${area}!` : 'Enemy spotted!');
+      }
     }
     if (by.team === 'CT') this.maybeRotate(pos);
   }
@@ -303,10 +306,14 @@ export class BotManager {
       // Most of the team takes the main route; the rest split onto the others.
       const routeIdx = site.tRoutes.length > 1 && i >= Math.ceil(ts.length * 0.6) ? 1 + (i % (site.tRoutes.length - 1)) : 0;
       const route = site.tRoutes[routeIdx];
-      const via = route[Math.floor(route.length * 0.55)].pos.clone();
       const dest = pick(site.nodes, g.rand).pos.clone();
       const hold = pick(site.tHolds, g.rand);
-      b.task = b.p.weapons.c4 ? { kind: 'go', via, dest, then: { kind: 'plant', spot: dest } } : { kind: 'go', via, dest, then: { kind: 'hold', spot: hold.pos, look: hold.look } };
+      const onSite: Task = b.p.weapons.c4 ? { kind: 'go', via: null, dest, then: { kind: 'plant', spot: dest } } : { kind: 'go', via: null, dest, then: { kind: 'hold', spot: hold.pos, look: hold.look } };
+      // Gather just short of the site, then everyone hits it together instead of trickling in.
+      const stage = stagingPoint(route, site.zone);
+      const spread = new Vec3((g.rand() - 0.5) * 80, 0, (g.rand() - 0.5) * 80);
+      const spot = this.nav.nearest(stage.pos.clone().add(spread))?.pos.clone() ?? stage.pos.clone();
+      b.task = { kind: 'stage', spot, look: site.center.pos.clone().add(new Vec3(0, EYE, 0)), then: onSite };
     });
 
     // Counter-Terrorists spread over the sites.
@@ -513,6 +520,20 @@ export class BotManager {
         this.radio(b.p, 'Falling back!');
       }
     }
+    // T execute: go once the staged group has gathered, contact is made, or time is getting on.
+    if (!d.bomb) {
+      const staged = this.bots.filter((b) => b.p.team === 'T' && b.p.alive && b.task.kind === 'stage');
+      if (staged.length) {
+        const ready = staged.every((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 220);
+        const contact = staged.some((b) => b.enemy && b.enemy.alive && now - b.lastSeenTime() < 1);
+        const late = now - d.roundStart > 50 || d.timeLeft < 50;
+        if (ready || contact || late) {
+          for (const b of staged) if (b.task.kind === 'stage') b.task = b.task.then;
+          const caller = staged[0];
+          if (caller && this.targetSite) this.radio(caller.p, `Go go go! Hitting ${this.targetSite.zone.name}!`);
+        }
+      }
+    }
     // Release the retake once everyone's staged, or the clock forces it.
     if (d.bomb && !d.bomb.defused) {
       const staged = this.bots.filter((b) => b.p.team === 'CT' && b.p.alive && b.task.kind === 'stage');
@@ -564,6 +585,18 @@ export class BotManager {
       });
     }
   }
+}
+
+/** A node on the route roughly 500-800u before it enters the site, out of the defenders' sight. */
+function stagingPoint(route: NavNode[], zone: Zone): NavNode {
+  const enter = route.findIndex((n) => inZone(padZone(zone, 150), n.pos));
+  const end = enter < 0 ? route.length - 1 : enter;
+  let dist = 0;
+  for (let i = end; i > 0; i--) {
+    dist += route[i].pos.distanceTo(route[i - 1].pos);
+    if (dist > 650) return route[i - 1];
+  }
+  return route[Math.floor(route.length / 2)];
 }
 
 function pick<T>(list: T[], rand: () => number): T {

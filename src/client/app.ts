@@ -559,7 +559,10 @@ export class App {
         break;
       case 'radio':
         this.hud.chat(`(RADIO) ${e.player.name}: ${e.text}`, e.player.team);
-        if (e.player.team === this.local.team) this.announcer.say(e.text.startsWith('Fall') || e.text.startsWith('Rotat') ? 'rotate' : 'spotted', 4);
+        if (e.player.team === this.local.team && e.player.isBot) {
+          const cue = e.text.startsWith('Enemy spotted') ? 'spotted' : e.text.startsWith('Fall') || e.text.startsWith('Rotat') ? 'rotate' : e.text.startsWith('Go go') ? 'go' : e.text.startsWith('Fire in') ? 'fireinhole' : null;
+          if (cue) this.announcer.say(cue, 4);
+        }
         break;
       case 'respawn':
         if (e.player === this.local) {

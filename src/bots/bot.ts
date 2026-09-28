@@ -92,6 +92,10 @@ export class Bot {
     public skill: Skill,
   ) {}
 
+  lastSeenTime(): number {
+    return this.lastSeen;
+  }
+
   onSpawn(): void {
     this.yaw = this.p.yaw;
     this.pitch = 0;
