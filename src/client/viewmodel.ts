@@ -130,8 +130,9 @@ export class ViewModel {
     const speed = p.move.velocity.length2d();
     if (p.move.onGround) this.bobPhase += dt * (speed / 250) * 11;
     const bobAmt = Math.min(1, speed / 250) * (p.move.onGround ? 1 : 0.3);
-    const bobX = Math.sin(this.bobPhase) * 0.45 * bobAmt;
-    const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.35 * bobAmt;
+    // Kept small and smooth, closer to 1.6's cl_bob 0.01 than a big bounce.
+    const bobX = Math.sin(this.bobPhase) * 0.25 * bobAmt;
+    const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.18 * bobAmt;
 
     // Sway lags behind fast mouse movement.
     let dyaw = p.yaw - this.lastYaw;

@@ -97,7 +97,18 @@ function buildHead(s: Skin): THREE.Group {
 interface Leg {
   hip: THREE.Group;
   knee: THREE.Group;
+  ankle: THREE.Group;
 }
+
+/** Upper arm and forearm, each a stretchy box hanging from its joint. */
+interface Arm {
+  upper: THREE.Mesh;
+  fore: THREE.Mesh;
+  hand: THREE.Mesh;
+}
+
+const UPPER_ARM = 11;
+const FOREARM = 11;
 
 export class PlayerModel {
   readonly root = new THREE.Group();
@@ -108,8 +119,8 @@ export class PlayerModel {
   private stomach!: THREE.Mesh;
   private chest!: THREE.Mesh;
   private head: THREE.Group = new THREE.Group();
-  private armL!: THREE.Mesh;
-  private armR!: THREE.Mesh;
+  private armL!: Arm;
+  private armR!: Arm;
   private gunHolder = new THREE.Group();
   private gunId: WeaponId | null = null;
   private skinKey = '';
@@ -141,8 +152,12 @@ export class PlayerModel {
       knee.position.set(0, -THIGH, 0);
       hip.add(knee);
       part(knee, pants, lw * 0.8, SHIN, 7.5, 0, 0, 0, hangBox);
-      part(knee, boots, lw * 0.85, FOOT, 11, 0, -SHIN - FOOT / 2, -2);
-      this.legs.push({ hip, knee });
+      // Feet hang off an ankle joint so they can stay flat on the floor.
+      const ankle = new THREE.Group();
+      ankle.position.set(0, -SHIN, 0);
+      knee.add(ankle);
+      part(ankle, boots, lw * 0.9, FOOT, 11, 0, -FOOT / 2, -2);
+      this.legs.push({ hip, knee, ankle });
     }
     this.hips.add(this.torso);
     this.stomach = part(this.torso, mat(s.shirt), 1, 1, 1, 0, 0, 0);
@@ -150,15 +165,17 @@ export class PlayerModel {
     this.head = buildHead(s);
     this.torso.add(this.head);
     const sleeve = mat(s.shirt);
-    this.armL = part(this.torso, sleeve, 3.8, 1, 3.8, 0, 0, 0, hangBox);
-    this.armR = part(this.torso, sleeve, 3.8, 1, 3.8, 0, 0, 0, hangBox);
-    // Gloves/hands at the end of each arm.
-    for (const arm of [this.armL, this.armR]) {
-      const hand = new THREE.Mesh(box, mat(s.gloves));
-      hand.scale.set(1.1, 0.12, 1.1);
-      hand.position.set(0, -1, 0);
-      arm.add(hand);
-    }
+    const vest = mat(s.vest);
+    const glove = mat(s.gloves);
+    const arm = (): Arm => ({
+      upper: part(this.torso, sleeve, 4.6, 1, 4.6, 0, 0, 0, hangBox),
+      fore: part(this.torso, sleeve, 4, 1, 4, 0, 0, 0, hangBox),
+      hand: part(this.torso, glove, 3.6, 3.6, 3.6, 0, 0, 0),
+    });
+    this.armL = arm();
+    this.armR = arm();
+    // Shoulder pads so the arms join the torso instead of floating beside it.
+    for (const side of [-1, 1]) part(this.torso, vest, 6, 5, 8, side * 9, 0, 0).name = side < 0 ? 'padL' : 'padR';
     this.torso.add(this.gunHolder);
     this.gunId = null;
     this.root.traverse((o) => (o.castShadow = true));
@@ -181,7 +198,8 @@ export class PlayerModel {
 
     // Gait: phase advances with ground speed; walking (shift) swings less than running.
     const sf = p.onGround ? Math.min(1, p.speed / 230) : 0;
-    if (p.onGround && p.speed > 5) this.phase += (p.speed / 250) * dt * 10;
+    // Cadence follows ground speed; with the wider stride below feet slide much less than before.
+    if (p.onGround && p.speed > 5) this.phase += (p.speed / 250) * dt * 12.5;
     if (p.onGround && !this.wasOnGround) this.landTime = time;
     this.wasOnGround = p.onGround;
     const land = Math.max(0, 1 - (time - this.landTime) / 0.18);
@@ -192,8 +210,10 @@ export class PlayerModel {
     this.hips.position.set(0, hipY + bob, 0);
     this.legs.forEach((leg, i) => {
       const ph = this.phase + (i ? Math.PI : 0);
-      let thigh = base + Math.sin(ph) * 0.65 * sf * (duck > 0.5 ? 0.5 : 1);
-      let knee = -2 * base - Math.max(0, -Math.cos(ph)) * 1.1 * sf;
+      const amp = (p.speed > 160 ? 0.78 : 0.5) * (duck > 0.5 ? 0.5 : 1);
+      let thigh = base + Math.sin(ph) * amp * sf;
+      // Lift the knee on the way forward, straight leg on the way back.
+      let knee = -2 * base - Math.max(0, Math.cos(ph)) * 1.2 * sf;
       if (!p.onGround) {
         // Tucked in the air, one leg a little ahead of the other.
         thigh = base + 0.55 + (i ? 0.2 : 0);
@@ -201,6 +221,8 @@ export class PlayerModel {
       }
       leg.hip.rotation.x = thigh;
       leg.knee.rotation.x = knee;
+      // Keep the sole roughly level with the ground.
+      leg.ankle.rotation.x = -(thigh + knee) * 0.85;
     });
 
     // Torso sits on the hips; parts are placed relative to hip height.
@@ -214,14 +236,20 @@ export class PlayerModel {
     this.head.position.set(0, (h0 + h1) / 2 - hipY, -1);
     this.head.scale.setScalar(Math.min(1, (hw * 2) / 11));
     this.torso.rotation.x = -0.12 * sf - p.pitch * DEG * 0.15;
+    // A little shoulder twist with each stride.
+    this.torso.rotation.y = Math.sin(this.phase) * 0.07 * sf;
 
     // Gun in front of the chest, pitched with the aim; hands reach for grip and handguard.
     const shoulderY = c1 - hipY - 2.5;
     const pitch = p.pitch * DEG;
     const kick = time - p.firedAt < 0.08 ? 1.5 : 0;
-    this.gunHolder.position.set(1, shoulderY - 5, -13 + kick);
-    this.gunHolder.rotation.x = pitch;
     const id = p.alive ? p.weapon : null;
+    const long = !!id && !['glock', 'usp', 'p228', 'deagle', 'fiveseven', 'elite', 'knife', 'hegrenade', 'flashbang', 'smokegrenade', 'c4'].includes(id);
+    // Rifles sit with the stock in the right shoulder; pistols are pushed out in both hands.
+    if (long) this.gunHolder.position.set(4, shoulderY - 3, -10 + kick);
+    else this.gunHolder.position.set(1.5, shoulderY - 2, -17 + kick);
+    this.gunHolder.rotation.x = pitch;
+    for (const c of this.torso.children) if (c.name === 'padL' || c.name === 'padR') c.position.y = shoulderY + 1;
     if (id !== this.gunId) {
       this.gunHolder.clear();
       if (id) {
@@ -232,11 +260,12 @@ export class PlayerModel {
       this.gunId = id;
     }
     this.gunHolder.updateMatrix();
-    const long = !!id && !['glock', 'usp', 'p228', 'deagle', 'fiveseven', 'elite', 'knife', 'hegrenade', 'flashbang', 'smokegrenade', 'c4'].includes(id);
-    const grip = new THREE.Vector3(0, -1, 0.5).applyMatrix4(this.gunHolder.matrix);
-    const fore = new THREE.Vector3(0, 0, long ? -9 : -0.5).applyMatrix4(this.gunHolder.matrix);
-    this.reach(this.armR, new THREE.Vector3(cw - 2, shoulderY, 0), grip);
-    this.reach(this.armL, new THREE.Vector3(-(cw - 2), shoulderY, 0), long ? fore : grip.clone().add(new THREE.Vector3(-1.5, 0, 0)));
+    const grip = new THREE.Vector3(0, -1.5, 0.5).applyMatrix4(this.gunHolder.matrix);
+    const fore = new THREE.Vector3(0, 0, long ? -9 : 0).applyMatrix4(this.gunHolder.matrix);
+    if (!long) fore.x -= 2.5;
+    // Elbows bend down and out, the way you'd hold a rifle.
+    this.ik(this.armR, new THREE.Vector3(cw - 1, shoulderY, 0), grip, new THREE.Vector3(1, -1, 0.3));
+    this.ik(this.armL, new THREE.Vector3(-(cw - 1), shoulderY, 0), fore, new THREE.Vector3(-1, -1.2, 0.2));
 
     if (!p.alive) {
       if (this.deathTime < 0) {
@@ -253,12 +282,27 @@ export class PlayerModel {
     }
   }
 
-  /** Point an arm from its shoulder to a hand position, stretching it to fit. */
-  private reach(arm: THREE.Mesh, shoulder: THREE.Vector3, hand: THREE.Vector3): void {
-    const dir = hand.clone().sub(shoulder);
-    const len = Math.max(4, dir.length());
-    arm.position.copy(shoulder);
-    arm.quaternion.setFromUnitVectors(DOWN, dir.normalize());
-    arm.scale.set(3.8, len, 3.8);
+  /** Two-bone IK: place the elbow so upper arm and forearm reach from shoulder to hand, bending toward `pole`. */
+  private ik(arm: Arm, shoulder: THREE.Vector3, hand: THREE.Vector3, pole: THREE.Vector3): void {
+    const toHand = hand.clone().sub(shoulder);
+    const d = Math.min(toHand.length(), UPPER_ARM + FOREARM - 0.01);
+    const dir = toHand.normalize();
+    // Law of cosines for how far along the shoulder-hand line the elbow sits, then how far off it.
+    const a = (UPPER_ARM * UPPER_ARM - FOREARM * FOREARM + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, UPPER_ARM * UPPER_ARM - a * a));
+    const bend = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
+    const elbow = shoulder.clone().addScaledVector(dir, a).addScaledVector(bend, h);
+    const reachHand = shoulder.clone().addScaledVector(dir, d);
+    this.bone(arm.upper, shoulder, elbow);
+    this.bone(arm.fore, elbow, reachHand);
+    arm.hand.position.copy(reachHand);
+  }
+
+  private bone(m: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3): void {
+    const v = to.clone().sub(from);
+    const len = Math.max(1, v.length());
+    m.position.copy(from);
+    m.quaternion.setFromUnitVectors(DOWN, v.normalize());
+    m.scale.y = len;
   }
 }
