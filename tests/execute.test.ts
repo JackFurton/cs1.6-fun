@@ -22,6 +22,7 @@ test.each(['de_dust2', 'de_inferno'])('Ts on %s smoke and flash their execute wi
       if (p.team === 'T') for (const n of ['smokegrenade', 'flashbang', 'hegrenade'] as const) g.equip(p, n);
     }
     const mgr = new BotManager(g, r, 'normal');
+    mgr.forceStrat = 'execute';
     const seen = new Map<unknown, number>();
     for (let i = 0; i < 12000 && r.round === 1; i++) {
       mgr.update(TICK_DT);

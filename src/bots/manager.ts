@@ -8,6 +8,7 @@ import { inZone, type Team, type Zone } from '../maps/types';
 import type { RadioCommand } from '../game/radio';
 import { Bot, type Task } from './bot';
 import { along, findLineup, type Lineup } from './lineups';
+import { chooseSite, chooseTStrat, ctSetup, shuffle, type RoundNote, type TStrat } from './strategy';
 import { solveThrow, type GrenadeId } from '../game/grenades';
 import { botBuy } from './buy';
 import { NavGraph, type NavNode } from './nav';
@@ -43,6 +44,13 @@ interface Contact {
 
 const EYE = 60;
 
+/** An execute's utility, handed out: a first guess at the go, and who's flashing which way in. */
+interface UtilityPlan {
+  release: number;
+  flashers: Bot[];
+  entrance: Vec3 | null;
+}
+
 export class BotManager {
   readonly nav: NavGraph;
   readonly bots: Bot[] = [];
@@ -50,15 +58,36 @@ export class BotManager {
   private contacts: Contact[] = [];
   private lastPhase = '';
   private lastRound = -1;
-  private rotated = new Set<string>();
+  /** CTs sent to each site this round, so rotations can come in waves as more shows up. */
+  private rotated = new Map<string, number>();
   private nextStrategy = 0;
   private retakeIssued = false;
   private retakeStart = 0;
   private radioAt = new Map<Team, number>();
   /** Site the Terrorists are going for this round. */
   targetSite: SitePlan | null = null;
-  /** T execute timeline: gather at the staging spots, throw utility, then go on the flash. */
-  private exec: { phase: 'gather' | 'plan' | 'util'; release: number; plan?: Generator<void, number> } | null = null;
+  /** T execute timeline: gather at the staging spots (not before `notBefore`), throw utility, then go on the flash. */
+  private exec: { phase: 'gather' | 'plan' | 'util'; release: number; notBefore: number; plan?: Generator<void, UtilityPlan>; flash?: UtilityPlan & { since: number } } | null = null;
+  /** What the bots remember of earlier rounds, and how the Ts are playing this one. */
+  private notes: RoundNote[] = [];
+  private strat: TStrat | null = null;
+  /** Pin the T strategy instead of choosing one (tests, debugging). */
+  forceStrat: TStrat | null = null;
+  /** Time-weighted contacts near each site, as each side saw them this round. */
+  private heat = { T: new Map<string, number>(), CT: new Map<string, number>() };
+  private plantSite: string | null = null;
+  /** Default: bots out taking map control, and when the call comes. */
+  private callAt: number | null = null;
+  private defaults = new Map<Bot, Task>();
+  /** Fake: a pair making noise at the other site before the real hit. */
+  private fake: { site: SitePlan; bots: Bot[]; plan?: Generator<void, UtilityPlan>; release?: number; done: boolean } | null = null;
+  /** A CT out for an early look: walk up, flash, peek, fall back. */
+  private info: { bot: Bot; task: Task; pre: Vec3; peek: Vec3; flashAt: Vec3; stage: 'pre' | 'flash'; since: number; home: Spot } | null = null;
+  private lastHolds: Vec3[] = [];
+  /** Orders that go out after a beat, dropped if the bot's been told something else meanwhile. */
+  private pendingTasks: { at: number; b: Bot; task: Task; expect: Task }[] = [];
+  private ctAlive = new Set<Player>();
+  private reacted = new Map<Bot, number>();
   /** Retake: set once the CTs are grouped; the entry waits for their flashes to pop. */
   private retakeRelease: number | null = null;
 
@@ -230,10 +259,13 @@ export class BotManager {
       // Only call out real threats, not a speck at the far end of a sightline.
       if (!heardAt && enemy.origin.distanceTo(by.origin) < 2000) {
         const area = this.nav.nearest(enemy.origin)?.area;
-        this.radio(by, area ? `Enemy spotted, ${area}!` : 'Enemy spotted!');
+        const what = enemy.weapons.c4 ? 'Bomb carrier spotted' : 'Enemy spotted';
+        this.radio(by, area ? `${what}, ${area}!` : `${what}!`);
       }
     }
-    if (by.team === 'CT') this.maybeRotate(pos);
+    const site = this.sites.find((s) => inZone(padZone(s.zone, 1000), pos));
+    if (site) this.heat[by.team].set(site.zone.name, (this.heat[by.team].get(site.zone.name) ?? 0) + 1);
+    if (by.team === 'CT') this.maybeRotate(pos, enemy.weapons.c4 && !heardAt ? 3 : 1);
   }
 
   /** Recent enemy position a teammate reported close to this bot, to look toward. */
@@ -297,11 +329,31 @@ export class BotManager {
 
   private roundStart(d: BombDefusal): void {
     const g = this.game;
+    if (this.strat) {
+      let hit = this.plantSite;
+      if (!hit) {
+        let best = 0;
+        for (const [k, v] of this.heat.CT) if (v > best) [best, hit] = [v, k];
+      }
+      this.notes.push({ site: this.targetSite?.zone.name ?? null, strat: this.strat, tWon: d.lastWinner === 'T', hit });
+      if (this.notes.length > 10) this.notes.shift();
+    }
     this.contacts = [];
     this.rotated.clear();
     this.retakeIssued = false;
     this.retakeRelease = null;
-    this.exec = { phase: 'gather', release: 0 };
+    this.exec = null;
+    this.strat = null;
+    this.heat.T.clear();
+    this.heat.CT.clear();
+    this.plantSite = null;
+    this.callAt = null;
+    this.defaults.clear();
+    this.fake = null;
+    this.info = null;
+    this.pendingTasks = [];
+    this.ctAlive.clear();
+    this.reacted.clear();
     for (const b of this.bots) b.onSpawn();
 
     // Shopping, as a team.
@@ -322,49 +374,176 @@ export class BotManager {
       return;
     }
 
-    // Terrorists pick a site and split across its approaches.
-    const site = this.sites[Math.floor(g.rand() * this.sites.length)];
+    this.planT(d);
+    this.planCT();
+  }
+
+  private onSiteTask(b: Bot, site: SitePlan): Task {
+    const g = this.game;
+    const dest = pick(site.nodes, g.rand).pos.clone();
+    if (b.p.weapons.c4) return { kind: 'go', via: null, dest, then: { kind: 'plant', spot: dest } };
+    const hold = pick(site.tHolds, g.rand);
+    return { kind: 'go', via: null, dest, then: { kind: 'hold', spot: hold.pos, look: hold.look } };
+  }
+
+  /** Gather just short of the site, then everyone hits it together instead of trickling in. */
+  private stageTask(b: Bot, site: SitePlan, route: NavNode[], then: Task = this.onSiteTask(b, site)): Task {
+    const g = this.game;
+    const stage = stagingPoint(route, site.zone, 550 + g.rand() * 350);
+    const spread = new Vec3((g.rand() - 0.5) * 80, 0, (g.rand() - 0.5) * 80);
+    const spot = this.nav.nearest(stage.pos.clone().add(spread))?.pos.clone() ?? stage.pos.clone();
+    return { kind: 'stage', spot, look: site.center.pos.clone().add(new Vec3(0, EYE, 0)), then };
+  }
+
+  /** Routes into a site that come in through different entrances, main one first. */
+  private distinctRoutes(site: SitePlan): NavNode[][] {
+    const out: NavNode[][] = [];
+    const ins: Vec3[] = [];
+    for (const r of site.tRoutes) {
+      const i = r.findIndex((n) => inZone(site.zone, n.pos));
+      const at = r[Math.max(0, i)].pos;
+      if (ins.every((p) => p.distanceTo(at) > 400)) {
+        out.push(r);
+        ins.push(at);
+      }
+    }
+    return out;
+  }
+
+  private planT(d: BombDefusal): void {
+    const g = this.game;
+    // The bomb carrier goes first so it always lands in the main group.
+    const ts = this.bots.filter((b) => b.p.team === 'T').sort((a, b) => Number(!!b.p.weapons.c4) - Number(!!a.p.weapons.c4));
+    const pistol = d.round === 1 || (d.cfg.halftime > 0 && d.round === d.cfg.halftime + 1);
+    const eco = ts.filter((b) => b.p.weapons.primary).length < ts.length / 2;
+    const strat = this.forceStrat ?? chooseTStrat({ eco, pistol, ts: ts.length, sites: this.sites.length, history: this.notes, rand: g.rand });
+    this.strat = strat;
+    const name = chooseSite(this.sites.map((x) => x.zone.name), this.notes, g.rand);
+    const site = this.sites.find((s) => s.zone.name === name)!;
     this.targetSite = site;
-    const ts = this.bots.filter((b) => b.p.team === 'T');
-    const lurk = ts.length >= 3 && g.rand() < 0.35 ? ts[ts.length - 1] : null;
-    ts.forEach((b, i) => {
-      if (b === lurk) {
-        const other = this.sites.find((s) => s !== site) ?? site;
-        const r = other.tRoutes[0];
-        const spot = r[Math.floor(r.length * 0.6)].pos.clone();
-        b.task = { kind: 'go', via: null, dest: spot, then: { kind: 'hold', spot, look: other.center.pos.clone().add(new Vec3(0, EYE, 0)) } };
+    const live = d.phaseEnd;
+    const routes = this.distinctRoutes(site);
+    // Not always the same way in: the main route most of the time, another now and then.
+    const main = routes.length > 1 && g.rand() < 0.35 ? routes[1] : routes[0];
+    const other = routes.find((r) => r !== main) ?? main;
+    const caller = ts[0];
+
+    switch (strat) {
+      case 'rush':
+        ts.forEach((b, i) => {
+          const r = i < Math.ceil(ts.length * 0.7) ? main : other;
+          const onSite = this.onSiteTask(b, site);
+          // Straight down the route with no stop: the via point keeps them on it.
+          const task: Task = { kind: 'go', via: r[Math.floor(r.length * 0.6)].pos.clone(), dest: (onSite as { dest: Vec3 }).dest, then: (onSite as { then: Task }).then };
+          if (b.p.weapons.c4 && ts.length > 1) {
+            // Carrier trails the pack by a second or so.
+            b.task = { kind: 'hold', spot: b.p.origin.clone(), look: site.center.pos.clone().add(new Vec3(0, EYE, 0)) };
+            this.pendingTasks.push({ at: live + 1 + g.rand() * 0.8, b, task, expect: b.task });
+          } else b.task = task;
+        });
+        if (caller) this.later(live - g.time + 0.5, caller.p, `Rush ${site.zone.name}, don't stop!`);
+        return;
+      case 'default': {
+        // Spread out and take map control, then call a site on what we learn.
+        const pairs = shuffle(this.sites.flatMap((s) => this.distinctRoutes(s).slice(0, 2).map((r) => ({ s, r }))), g.rand);
+        ts.forEach((b, i) => {
+          const { s, r } = pairs[i % pairs.length];
+          const spot = stagingPoint(r, s.zone, 1100 + g.rand() * 500).pos.clone();
+          const look = stagingPoint(r, s.zone, 500).pos.clone().add(new Vec3(0, EYE, 0));
+          const hold: Task = { kind: 'hold', spot, look };
+          b.task = { kind: 'go', via: null, dest: spot, then: hold };
+          this.defaults.set(b, hold);
+        });
+        this.callAt = live + 15 + g.rand() * 18;
         return;
       }
-      // Most of the team takes the main route; the rest split onto the others.
-      const routeIdx = site.tRoutes.length > 1 && i >= Math.ceil(ts.length * 0.6) ? 1 + (i % (site.tRoutes.length - 1)) : 0;
-      const route = site.tRoutes[routeIdx];
-      const dest = pick(site.nodes, g.rand).pos.clone();
-      const hold = pick(site.tHolds, g.rand);
-      const onSite: Task = b.p.weapons.c4 ? { kind: 'go', via: null, dest, then: { kind: 'plant', spot: dest } } : { kind: 'go', via: null, dest, then: { kind: 'hold', spot: hold.pos, look: hold.look } };
-      // Gather just short of the site, then everyone hits it together instead of trickling in.
-      const stage = stagingPoint(route, site.zone);
-      const spread = new Vec3((g.rand() - 0.5) * 80, 0, (g.rand() - 0.5) * 80);
-      const spot = this.nav.nearest(stage.pos.clone().add(spread))?.pos.clone() ?? stage.pos.clone();
-      b.task = { kind: 'stage', spot, look: site.center.pos.clone().add(new Vec3(0, EYE, 0)), then: onSite };
-    });
+      case 'fake': {
+        const fakeSite = this.sites.find((s) => s !== site);
+        const fakers = fakeSite ? ts.filter((b) => !b.p.weapons.c4).slice(-2) : [];
+        if (fakeSite && fakers.length === 2) {
+          const fr = this.distinctRoutes(fakeSite)[0];
+          for (const b of fakers) b.task = this.stageTask(b, fakeSite, fr, { kind: 'hunt', dest: null });
+          this.fake = { site: fakeSite, bots: fakers, done: false };
+        }
+        for (const b of ts) if (!fakers.includes(b)) b.task = this.stageTask(b, site, main);
+        this.exec = { phase: 'gather', release: 0, notBefore: this.fake ? Infinity : live };
+        return;
+      }
+      case 'split':
+        // Two groups through two entrances, meeting on site. Needs two ways in, else it's an execute.
+        if (routes.length > 1) {
+          ts.forEach((b, i) => (b.task = this.stageTask(b, site, i < Math.ceil(ts.length / 2) ? main : other)));
+          this.exec = { phase: 'gather', release: 0, notBefore: live + 5 + g.rand() * 15 };
+          return;
+        }
+        this.strat = 'execute';
+        this.planExecute(ts, site, main, live);
+        return;
+      case 'execute':
+        this.planExecute(ts, site, main, live);
+    }
+  }
 
-    // Counter-Terrorists spread over the sites.
-    const cts = this.bots.filter((b) => b.p.team === 'CT');
-    const order = [...this.sites].sort(() => g.rand() - 0.5);
+  private planExecute(ts: Bot[], site: SitePlan, main: NavNode[], live: number): void {
+    const g = this.game;
+    const lurk = ts.length >= 4 && g.rand() < 0.35 ? ts[ts.length - 1] : null;
+    for (const b of ts) {
+      if (b === lurk) {
+        const lurkSite = this.sites.find((s) => s !== site) ?? site;
+        const r = pick(this.distinctRoutes(lurkSite), g.rand);
+        const spot = r[Math.floor(r.length * (0.5 + g.rand() * 0.2))].pos.clone();
+        b.task = { kind: 'go', via: null, dest: spot, then: { kind: 'hold', spot, look: lurkSite.center.pos.clone().add(new Vec3(0, EYE, 0)) } };
+      } else b.task = this.stageTask(b, site, main);
+    }
+    // Some rounds hit fast, some wait out the CTs.
+    this.exec = { phase: 'gather', release: 0, notBefore: live + g.rand() * 25 };
+  }
+
+  private planCT(): void {
+    const g = this.game;
+    const cts = shuffle(this.bots.filter((b) => b.p.team === 'CT'), g.rand);
+    const { counts, stacked } = ctSetup(this.sites.map((s) => s.zone.name), cts.length, this.notes, g.rand);
     const taken: Vec3[] = [];
     const perSite = new Map<SitePlan, number>();
-    cts.forEach((b, i) => {
-      const s = order[i % order.length];
-      // Cover the site's entrances in turn, so two CTs on one site watch different ways in.
-      const n = perSite.get(s) ?? 0;
-      perSite.set(s, n + 1);
-      const entrance = s.tEntrances.length ? (n + Math.floor(g.rand() * 2)) % s.tEntrances.length : 0;
-      let spots = s.ctHolds.filter((h) => h.entrance === entrance && taken.every((t) => t.distanceTo(h.pos) > 180));
-      if (!spots.length) spots = s.ctHolds.filter((h) => taken.every((t) => t.distanceTo(h.pos) > 180));
-      const h = pick(spots.length ? spots : s.ctHolds, g.rand);
-      taken.push(h.pos);
-      b.task = { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() };
-    });
+    const assigned: { b: Bot; s: SitePlan; h: Spot }[] = [];
+    let i = 0;
+    for (const s of this.sites) {
+      for (let k = 0; k < (counts.get(s.zone.name) ?? 0) && i < cts.length; k++) {
+        const b = cts[i++];
+        // Cover the site's entrances in turn, so two CTs on one site watch different ways in.
+        const n = perSite.get(s) ?? 0;
+        perSite.set(s, n + 1);
+        const entrance = s.tEntrances.length ? (n + Math.floor(g.rand() * 2)) % s.tEntrances.length : 0;
+        const free = (h: Spot) => taken.every((t) => t.distanceTo(h.pos) > 180);
+        // Somewhere other than last round's spots: the Ts remember where they died too.
+        const fresh = (h: Spot) => this.lastHolds.every((t) => t.distanceTo(h.pos) > 200);
+        const tiers = [
+          s.ctHolds.filter((h) => h.entrance === entrance && free(h) && fresh(h)),
+          s.ctHolds.filter((h) => free(h) && fresh(h)),
+          s.ctHolds.filter((h) => h.entrance === entrance && free(h)),
+          s.ctHolds.filter(free),
+          s.ctHolds,
+        ];
+        const h = pick(tiers.find((t) => t.length)!, g.rand);
+        taken.push(h.pos);
+        b.task = { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() };
+        assigned.push({ b, s, h });
+      }
+    }
+    this.lastHolds = taken;
+    if (stacked && assigned[0]) this.later(3 + g.rand() * 3, assigned[0].b.p, `Stacking ${stacked} this round.`);
+
+    // Now and then someone takes an early look down a T route, flashing their way in.
+    const peekers = assigned.filter((a) => (perSite.get(a.s) ?? 0) >= 2);
+    if (peekers.length && g.rand() < 0.35) {
+      const { b, s, h } = pick(peekers, g.rand);
+      const r = pick(this.distinctRoutes(s), g.rand);
+      const dist = 700 + g.rand() * 300;
+      const pre = stagingPoint(r, s.zone, dist - 280).pos.clone();
+      const task: Task = { kind: 'hold', spot: pre, look: stagingPoint(r, s.zone, dist).pos.clone().add(new Vec3(0, EYE, 0)) };
+      b.task = { kind: 'go', via: null, dest: pre, then: task };
+      this.info = { bot: b, task, pre, peek: stagingPoint(r, s.zone, dist).pos.clone(), flashAt: stagingPoint(r, s.zone, dist + 450).pos.clone(), stage: 'pre', since: 0, home: h };
+    }
   }
 
   /** Unarmed bots go for guns lying nearby: fy_ spawns, or a dead player's rifle. */
@@ -497,14 +676,17 @@ export class BotManager {
     const loose = d.looseC4;
     if (loose && !d.bomb) {
       const ts = this.bots.filter((b) => b.p.team === 'T' && b.p.alive);
-      if (ts.length && !ts.some((b) => b.task.kind === 'fetch')) {
+      // Track where it ends up: a dropped bomb is still falling (or sliding) when it's first seen.
+      const fetcher = ts.find((b) => b.task.kind === 'fetch');
+      if (fetcher?.task.kind === 'fetch') fetcher.task.pos.copy(loose);
+      else if (ts.length) {
         const near = ts.reduce((a, b) => (a.p.origin.distanceTo(loose) < b.p.origin.distanceTo(loose) ? a : b));
         near.task = { kind: 'fetch', pos: loose.clone() };
       }
     }
     // Whoever picked it up heads for the site to plant.
     for (const b of this.bots) {
-      if (b.p.team === 'T' && b.p.weapons.c4 && (b.task.kind === 'fetch' || b.task.kind === 'hold' || b.task.kind === 'hunt' || b.task.kind === 'idle')) {
+      if (b.p.team === 'T' && b.p.weapons.c4 && !this.defaults.has(b) && (b.task.kind === 'fetch' || b.task.kind === 'hold' || b.task.kind === 'hunt' || b.task.kind === 'idle')) {
         const site = this.targetSite ?? this.sites[0];
         if (!site) continue;
         const dest = pick(site.nodes, g.rand).pos.clone();
@@ -517,23 +699,47 @@ export class BotManager {
       this.retakeIssued = true;
       const bomb = d.bomb.pos.clone();
       const site = this.sites.find((s) => inZone(s.zone, bomb)) ?? this.sites[0];
+      this.plantSite = site.zone.name;
+      this.pendingTasks = [];
+      this.info = null;
       const cts = this.bots.filter((b) => b.p.team === 'CT' && b.p.alive);
       // Kit holder (or whoever's closest) defuses, the rest clear the site.
       const defuser = cts.find((b) => b.p.defuser) ?? cts.sort((a, b) => a.p.origin.distanceTo(bomb) - b.p.origin.distanceTo(bomb))[0];
       // Group up outside the site first: one CT at a time walking into a post-plant is a free kill.
       this.retakeStart = g.time;
-      for (const b of cts) {
+      cts.forEach((b, i) => {
         const then: Task = b === defuser ? { kind: 'defuse', bomb } : { kind: 'hunt', dest: pick(site.nodes, g.rand).pos.clone() };
         const inside = inZone(padZone(site.zone, 200), b.p.origin);
-        const entry = site.ctEntrances.length ? site.ctEntrances.reduce((a, e) => (a.distanceTo(b.p.origin) < e.distanceTo(b.p.origin) ? a : e)) : null;
+        // Come from two sides when there are enough of us and the second way in isn't much longer.
+        const ways = [...site.ctEntrances].sort((a, e) => a.distanceTo(b.p.origin) - e.distanceTo(b.p.origin));
+        const second = ways[1] && i % 2 === 1 && cts.length >= 3 && ways[1].distanceTo(b.p.origin) < ways[0].distanceTo(b.p.origin) * 1.7;
+        const entry = (second ? ways[1] : ways[0]) ?? null;
         const node = entry ? this.nav.nearest(entry.clone().add(new Vec3(0, -EYE, 0))) : null;
         b.task = inside || !node ? then : { kind: 'stage', spot: node.pos.clone(), look: bomb.clone().add(new Vec3(0, EYE, 0)), then };
-      }
+      });
       for (const b of this.bots) {
         if (b.p.team !== 'T' || !b.p.alive) continue;
         const h = pick(site.tHolds, g.rand);
         b.task = { kind: 'go', via: null, dest: h.pos.clone(), then: { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() } };
       }
+    }
+    for (let i = this.pendingTasks.length - 1; i >= 0; i--) {
+      const o = this.pendingTasks[i];
+      if (now < o.at) continue;
+      this.pendingTasks.splice(i, 1);
+      if (o.b.p.alive && o.b.task === o.expect) o.b.task = o.task;
+    }
+    // A CT going down tells the others where the Ts are.
+    for (const p of g.players) {
+      if (p.team !== 'CT') continue;
+      if (p.alive) this.ctAlive.add(p);
+      else if (this.ctAlive.delete(p) && !d.bomb) this.maybeRotate(p.origin, 2);
+    }
+    if (!d.bomb) {
+      this.defaultCall(d);
+      this.runFake(d);
+      this.runInfo();
+      this.reposition();
     }
     // A lone CT who sees two or more coming backs off toward the CT side and plays for the retake,
     // instead of dying 1v3 on a site nobody else is holding.
@@ -556,11 +762,16 @@ export class BotManager {
     // the stage skips straight to the go, since waiting on lineups while getting shot is how you
     // lose a round. A fight on the way there, or a long duel from the stage, is just that bot's fight.
     if (!d.bomb && this.exec) {
-      const staged = this.bots.filter((b) => b.p.team === 'T' && b.p.alive && b.task.kind === 'stage');
+      const staged = this.bots.filter((b) => b.p.team === 'T' && b.p.alive && b.task.kind === 'stage' && !this.fake?.bots.includes(b));
       const contact = staged.some((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 500 && b.enemy && b.enemy.alive && b.enemy.origin.distanceTo(b.p.origin) < 1000 && now - b.lastSeenTime() < 1);
       const go = () => {
-        for (const b of staged) if (b.task.kind === 'stage') b.task = b.task.then;
-        const caller = staged[0];
+        for (const b of staged) {
+          if (b.task.kind !== 'stage') continue;
+          // The bomb goes in second, behind someone who can take the first fight.
+          if (b.p.weapons.c4 && staged.length > 1) this.pendingTasks.push({ at: now + 0.8 + g.rand() * 0.6, b, task: b.task.then, expect: b.task });
+          else b.task = b.task.then;
+        }
+        const caller = staged.find((b) => !b.p.weapons.c4) ?? staged[0];
         if (caller && this.targetSite) this.radio(caller.p, `Go go go! Hitting ${this.targetSite.zone.name}!`);
         this.exec = null;
       };
@@ -569,13 +780,13 @@ export class BotManager {
       else if (this.exec.phase === 'gather') {
         const ready = staged.every((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 220);
         const late = now - d.roundStart > 50 || d.timeLeft < 50;
-        if (ready || late) this.exec = { phase: 'plan', release: 0, plan: this.executeUtility(staged) };
+        if ((ready && now >= this.exec.notBefore) || late) this.exec = { phase: 'plan', release: 0, notBefore: 0, plan: this.executeUtility(staged, this.targetSite) };
       }
       if (this.exec?.phase === 'plan') {
         const r = this.exec.plan!.next();
-        if (r.done) this.exec = { phase: 'util', release: r.value };
+        if (r.done) this.exec = { phase: 'util', release: r.value.release, notBefore: 0, flash: { ...r.value, since: now } };
       }
-      if (this.exec?.phase === 'util' && now >= this.exec.release) go();
+      if (this.exec?.phase === 'util' && now >= this.releaseTime(this.exec.release, this.exec.flash!, staged)) go();
     }
     // Release the retake once everyone's staged (or the clock forces it), flashing the site first.
     if (d.bomb && !d.bomb.defused) {
@@ -607,6 +818,107 @@ export class BotManager {
     }
   }
 
+  /** Default: once the map's been felt out, commit to whichever site showed fewer CTs. */
+  private defaultCall(d: BombDefusal): void {
+    const g = this.game;
+    if (this.callAt === null) return;
+    const out = [...this.defaults].filter(([b, t]) => b.p.alive && (b.task === t || (b.task.kind === 'go' && b.task.then === t)));
+    // Losing someone early forces the call.
+    const lost = this.bots.some((b) => b.p.team === 'T' && !b.p.alive);
+    if (g.time < this.callAt && !(lost && g.time > d.roundStart + 8)) return;
+    this.callAt = null;
+    this.defaults.clear();
+    if (!out.length) return;
+    const seen = (s: SitePlan) => (this.heat.T.get(s.zone.name) ?? 0) + g.rand() * 3;
+    const site = [...this.sites].sort((a, b) => seen(a) - seen(b))[0];
+    this.targetSite = site;
+    const routes = this.distinctRoutes(site);
+    for (const [b] of out) {
+      const r = routes.reduce((a, x) => (stagingPoint(a, site.zone).pos.distanceTo(b.p.origin) < stagingPoint(x, site.zone).pos.distanceTo(b.p.origin) ? a : x));
+      b.task = this.stageTask(b, site, r);
+    }
+    this.exec = { phase: 'gather', release: 0, notBefore: g.time };
+    this.radio(out[0][0].p, `${site.zone.name} looks light, everyone ${site.zone.name}!`);
+  }
+
+  /** Fake: the pair throws their utility at the other site and shows up there, then the real hit waits for the rotation. */
+  private runFake(d: BombDefusal): void {
+    const f = this.fake;
+    if (!f || f.done) return;
+    const g = this.game;
+    const now = g.time;
+    const fakers = f.bots.filter((b) => b.p.alive && b.task.kind === 'stage');
+    const give = () => {
+      f.done = true;
+      if (this.exec) this.exec.notBefore = now + 3 + g.rand() * 4;
+    };
+    if (!fakers.length) return give();
+    if (!f.plan && f.release === undefined) {
+      const ready = fakers.every((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 220);
+      if (ready || now - d.roundStart > 40) f.plan = this.executeUtility(fakers, f.site);
+    }
+    if (f.plan) {
+      const r = f.plan.next();
+      if (r.done) {
+        f.plan = undefined;
+        f.release = r.value.release;
+      }
+    }
+    if (f.release !== undefined && now >= f.release) {
+      // Step into the entrance so they get seen, then peel off toward the real site.
+      const entrance = f.site.tEntrances.reduce((a, e) => (a.distanceTo(fakers[0].p.origin) < e.distanceTo(fakers[0].p.origin) ? a : e));
+      const spot = this.nav.nearest(entrance.clone().add(new Vec3(0, -EYE, 0)))?.pos ?? entrance;
+      const join: Task = { kind: 'go', via: null, dest: (this.targetSite ?? f.site).center.pos.clone(), then: { kind: 'hunt', dest: null } };
+      for (const b of fakers) b.task = { kind: 'go', via: null, dest: spot.clone(), then: { kind: 'hold', spot: spot.clone(), look: f.site.center.pos.clone().add(new Vec3(0, EYE, 0)), until: now + 4 + g.rand() * 3, then: join } };
+      give();
+    }
+  }
+
+  /** CT info peek: flash out from behind cover, swing, have a look, get back to site. */
+  private runInfo(): void {
+    const inf = this.info;
+    if (!inf) return;
+    const g = this.game;
+    const b = inf.bot;
+    const onTask = b.task === inf.task || (b.task.kind === 'go' && b.task.then === inf.task);
+    if (!b.p.alive || !onTask) {
+      this.info = null;
+      return;
+    }
+    if (inf.stage === 'pre') {
+      if (b.p.origin.distanceTo(inf.pre) > 120) return;
+      inf.stage = 'flash';
+      inf.since = g.time;
+      if ((b.p.grenades.flashbang ?? 0) > 0) b.plans.push({ id: 'flashbang', target: inf.flashAt, at: g.time });
+      return;
+    }
+    const thrown = b.lastThrow.id === 'flashbang' && b.lastThrow.time >= inf.since;
+    if (!(thrown && g.time - b.lastThrow.time > 0.9) && g.time - inf.since < 4) return;
+    const h = inf.home;
+    const home: Task = { kind: 'go', via: null, dest: h.pos.clone(), quiet: true, then: { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() } };
+    b.task = { kind: 'go', via: null, dest: inf.peek.clone(), then: { kind: 'hold', spot: inf.peek.clone(), look: inf.flashAt.clone().add(new Vec3(0, EYE, 0)), until: g.time + 3 + g.rand() * 4, then: home } };
+    this.info = null;
+  }
+
+  /** A CT who just fought from a spot often moves off it: the Ts know exactly where it is now. */
+  private reposition(): void {
+    const g = this.game;
+    const now = g.time;
+    for (const b of this.bots) {
+      const t = b.task;
+      if (b.p.team !== 'CT' || !b.p.alive || t.kind !== 'hold' || t.until !== undefined) continue;
+      const last = b.lastSeenTime();
+      if (now - last < 1.5 || now - last > 3 || this.reacted.get(b) === last) continue;
+      this.reacted.set(b, last);
+      if (g.rand() < 0.5 || b.p.origin.distanceTo(t.spot) > 100) continue;
+      const site = this.sites.find((s) => inZone(padZone(s.zone, 700), t.spot));
+      const alts = site?.ctHolds.filter((h) => h.pos.distanceTo(t.spot) > 250 && h.pos.distanceTo(t.spot) < 900) ?? [];
+      if (!alts.length) continue;
+      const h = pick(alts, g.rand);
+      b.task = { kind: 'go', via: null, dest: h.pos.clone(), quiet: true, then: { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() } };
+    }
+  }
+
   /**
    * Hand out the execute's utility and return when the entry should go. Smokes cut the lines
    * from the holds that watch the entrance we're using (and the CT rotation into the site), an
@@ -614,9 +926,8 @@ export class BotManager {
    * the entry is timed to come round the corner as the flashes go off. Runs over a few ticks,
    * one fresh lineup search per tick, so the execute doesn't hitch the frame it starts on.
    */
-  private *executeUtility(staged: Bot[]): Generator<void, number> {
-    const site = this.targetSite;
-    if (!site || !site.tEntrances.length) return this.game.time;
+  private *executeUtility(staged: Bot[], site: SitePlan | null): Generator<void, UtilityPlan> {
+    if (!site || !site.tEntrances.length) return { release: this.game.time, flashers: [], entrance: null };
     const w = this.game.world;
     const centroid = staged.reduce((a, b) => a.add(b.p.origin), new Vec3()).scale(1 / staged.length);
     const entrance = site.tEntrances.reduce((a, e) => (a.distanceTo(centroid) < e.distanceTo(centroid) ? a : e));
@@ -685,59 +996,89 @@ export class BotManager {
     // Flashes once the smokes are up (they take ~1.5s to land and bloom).
     let flashAt = smoked ? now + 1.8 : t;
     let flashes = 0;
+    const flashers: Bot[] = [];
     // Whoever has the least to do throws them; a smoker can follow up with a flash.
     for (const b of throwers('flashbang').sort((a, b) => a.plans.length - b.plans.length)) {
       if (flashes >= 2) break;
       if (!b.p.alive) continue;
       b.plans.push({ id: 'flashbang', target: site.center.pos.clone(), at: flashAt });
+      flashers.push(b);
       flashAt += 0.35;
       flashes++;
     }
     const caller = staged[0];
     if (caller && (smoked || flashes)) this.radio(caller.p, `${smoked ? 'Smokes out' : 'Flash out'} on ${site.zone.name}, go on the pop!`);
-    // Flashes pop 1.5s after the throw; start the entry a little before so they round the corner on it.
-    // Grenade prep (switch, aim, throw) adds about half a second on top.
-    if (flashes) return flashAt - 0.35 + 0.5 + 1.1;
-    return smoked ? now + 2.5 : now;
+    // A first guess for the go; with flashes out, releaseTime() times it off the real throws.
+    const release = flashes ? flashAt - 0.35 + 0.5 + 1.1 : smoked ? now + 2.5 : now;
+    return { release, flashers, entrance };
   }
 
-  /** CTs rotate toward a site once enemies show up on its approach. */
-  private maybeRotate(at: Vec3): void {
+  /**
+   * When the entry goes: once every flash is out of someone's hand, early enough that the
+   * nearest player reaches the corner just after they pop (1.5s fuse) and not into them.
+   */
+  private releaseTime(guess: number, plan: UtilityPlan & { since: number }, staged: Bot[]): number {
+    const now = this.game.time;
+    if (!plan.flashers.length || !plan.entrance) return guess;
+    const thrown: number[] = [];
+    for (const b of plan.flashers) {
+      if (b.lastThrow.id === 'flashbang' && b.lastThrow.time >= plan.since) thrown.push(b.lastThrow.time);
+      // Still to throw (unless they died or it's taking far too long).
+      else if (b.p.alive && (b.p.grenades.flashbang ?? 0) > 0 && now < plan.since + 6) return Infinity;
+    }
+    if (!thrown.length) return now;
+    const lead = Math.min(...staged.map((b) => b.p.origin.distanceTo(plan.entrance!))) / 250;
+    return Math.max(...thrown) + 1.5 - lead + 0.15;
+  }
+
+  /**
+   * CTs rotate toward a site as the Ts show themselves on its approach: one confirmed enemy moves
+   * one player, more contacts move more, a teammate dying there counts double and the bomb
+   * carrier sends everyone. They go one after another, not in a pack, and walk in at the end.
+   */
+  private maybeRotate(at: Vec3, weight = 1): void {
     const d = this.defusal;
     if (!d || d.bomb || d.phase !== 'live') return;
     const node = this.nav.nearest(at);
     if (!node) return;
+    const g = this.game;
+    const now = g.time;
     for (const s of this.sites) {
-      if (this.rotated.has(s.zone.name) || !(s.approach.has(node.id) || inZone(padZone(s.zone, 300), at))) continue;
-      const now = this.game.time;
-      const seen = this.contacts.filter((c) => now - c.time < 6 && c.enemy.alive).filter((c) => {
-        const n = this.nav.nearest(c.pos);
-        return n && (s.approach.has(n.id) || inZone(padZone(s.zone, 300), c.pos));
-      }).length;
-      // One confirmed enemy on the approach is enough to start moving; waiting for two was too late.
-      if (seen < 1) continue;
-      this.rotated.add(s.zone.name);
-      const others = this.bots.filter((b) => b.p.team === 'CT' && b.p.alive && b.task.kind === 'hold' && !inZone(padZone(s.zone, 900), b.task.spot));
-      // Keep one player home on the other site if there's more than one there.
-      others.forEach((b, i) => {
-        if (i === others.length - 1 && others.length > 1) return;
-        const h = pick(s.ctHolds, this.game.rand);
-        const task: Task = { kind: 'go', via: null, dest: h.pos.clone(), then: { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() } };
-        b.task = task;
-        this.radio(b.p, `Rotating to ${s.zone.name}!`);
+      const near = (p: Vec3) => {
+        const n = this.nav.nearest(p);
+        return (n && s.approach.has(n.id)) || inZone(padZone(s.zone, 300), p);
+      };
+      if (!near(at)) continue;
+      const seen = this.contacts.filter((c) => now - c.time < 6 && c.enemy.alive && near(c.pos)).length;
+      if (seen < 1 && weight < 2) continue;
+      const want = Math.max(seen, 1) + weight - 1;
+      const sent = this.rotated.get(s.zone.name) ?? 0;
+      const others = this.bots
+        .filter((b) => b.p.team === 'CT' && b.p.alive && b.task.kind === 'hold' && b.task.until === undefined && !inZone(padZone(s.zone, 900), b.task.spot) && !this.pendingTasks.some((o) => o.b === b))
+        .sort((a, b) => a.p.origin.distanceTo(s.center.pos) - b.p.origin.distanceTo(s.center.pos));
+      // Someone stays home unless it's clearly all coming here.
+      const keep = others.length > 1 && weight < 3 ? 1 : 0;
+      const n = Math.min(others.length - keep, want - sent);
+      if (n <= 0) continue;
+      this.rotated.set(s.zone.name, sent + n);
+      others.slice(0, n).forEach((b, i) => {
+        const h = pick(s.ctHolds, g.rand);
+        const task: Task = { kind: 'go', via: null, dest: h.pos.clone(), quiet: true, then: { kind: 'hold', spot: h.pos.clone(), look: h.look.clone() } };
+        this.pendingTasks.push({ at: now + 0.2 + i * 0.9 + g.rand() * 0.8, b, task, expect: b.task });
+        if (i === 0) this.radio(b.p, `Rotating to ${s.zone.name}!`);
       });
     }
   }
 }
 
-/** A node on the route roughly 500-800u before it enters the site, out of the defenders' sight. */
-function stagingPoint(route: NavNode[], zone: Zone): NavNode {
+/** A node on the route about `dist` before it enters the site (out of the defenders' sight at the default). */
+function stagingPoint(route: NavNode[], zone: Zone, dist = 650): NavNode {
   const enter = route.findIndex((n) => inZone(padZone(zone, 150), n.pos));
   const end = enter < 0 ? route.length - 1 : enter;
-  let dist = 0;
+  let walked = 0;
   for (let i = end; i > 0; i--) {
-    dist += route[i].pos.distanceTo(route[i - 1].pos);
-    if (dist > 650) return route[i - 1];
+    walked += route[i].pos.distanceTo(route[i - 1].pos);
+    if (walked > dist) return route[i - 1];
   }
   return route[Math.floor(route.length / 2)];
 }
