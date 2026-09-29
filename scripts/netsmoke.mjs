@@ -18,21 +18,26 @@ const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=sw
 const errors = [];
 let ok = false;
 try {
-  const join = async (name, team) => {
+  // Load both pages before anyone joins: a page starting up next to one that's already rendering
+  // the game can take 40s+ on a 2-core CI runner with software GL.
+  const open = async (name) => {
     const p = await browser.newPage({ viewport: { width: 640, height: 360 } });
     p.on('pageerror', (e) => errors.push(`${name}: ${e}`));
     p.on('console', (m) => m.type() === 'error' && errors.push(`${name}: ${m.text()}`));
     await p.goto(`http://localhost:${PORT}/?connect&debug`);
     await p.waitForFunction(() => !!window.app, null, { timeout: 60000 });
+    return p;
+  };
+  const join = async (p, name, team) => {
     await p.evaluate(([n, t]) => {
       window.app.settings.name = n;
       window.app.menu.onJoin(t, 0);
     }, [name, team]);
-    await p.waitForFunction(() => window.app.started, null, { timeout: 30000 });
-    return p;
+    await p.waitForFunction(() => window.app.started, null, { timeout: 60000 });
   };
-  const a = await join('alice', 'T');
-  const b = await join('bob', 'CT');
+  const [a, b] = await Promise.all([open('alice'), open('bob')]);
+  await join(a, 'alice', 'T');
+  await join(b, 'bob', 'CT');
   const id = await a.evaluate(() => window.app.local.id);
   const start = await a.evaluate(() => [window.app.local.origin.x, window.app.local.origin.z]);
   await a.evaluate(() => (window.app.input.locked = true));
