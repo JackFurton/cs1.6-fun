@@ -81,7 +81,11 @@ export class Bot {
   private lookJitterAt = 0;
   private wantReloadAt = 0;
   /** A grenade being lined up: switch to it, aim, pull, release. */
-  private nade: { id: GrenadeId; yaw: number; pitch: number; stage: 'switch' | 'aim' | 'pull'; until: number } | null = null;
+  private nade: { id: GrenadeId; yaw: number; pitch: number; stage: 'switch' | 'aim' | 'pull'; until: number; precise: boolean } | null = null;
+  /** Throws the team asked for, in order: this grenade, at this spot, from wherever we stand at time `at`. */
+  plans: { id: GrenadeId; target: Vec3; at: number }[] = [];
+  /** When our last grenade left the hand, and which kind. */
+  lastThrow = { id: null as GrenadeId | null, time: -10 };
   private nadeCooldown = 0;
   private usedFlash = false;
   private usedSmoke = false;
@@ -107,6 +111,7 @@ export class Bot {
     this.lastPos.copy(this.p.origin);
     this.stuckTime = 0;
     this.nade = null;
+    this.plans = [];
     this.usedFlash = this.usedSmoke = false;
     this.fellBack = false;
     this.nadeCooldown = this.mgr.game.time + 3;
@@ -176,8 +181,14 @@ export class Bot {
       // Walk the last stretch into a hold quietly, like a player would.
       if (t.kind === 'hold' && moveDir && Math.hypot(t.spot.x - p.origin.x, t.spot.z - p.origin.z) < 250) c.walk = true;
       this.maintainWeapon();
-      if (!lookAt) lookAt = this.idleLook(moveDir);
-      if (lookAt) this.turnToward(lookAt, dt, 0.5);
+      const flash = this.friendlyFlash();
+      if (flash) {
+        // "Flash out": turn your back on it until it pops.
+        this.turnToward(p.eye().scale(2).sub(flash), dt, 1);
+      } else {
+        if (!lookAt) lookAt = this.idleLook(moveDir);
+        if (lookAt) this.turnToward(lookAt, dt, 0.5);
+      }
     }
 
     if (moveDir && !(engaged && this.stopping)) this.steer(moveDir);
@@ -331,8 +342,20 @@ export class Bot {
   /** Decide whether there's a grenade worth throwing right now. */
   private planNade(): boolean {
     const p = this.p;
-    if (this.time < this.nadeCooldown || !p.move.onGround || this.task.kind === 'plant' || this.task.kind === 'defuse') return false;
     const has = (id: GrenadeId) => (p.grenades[id] ?? 0) > 0;
+    // Team-called utility comes first and uses a proper lineup.
+    const plan = this.plans[0];
+    if (plan && this.time >= plan.at && p.move.onGround) {
+      this.plans.shift();
+      if (!has(plan.id)) return false;
+      const eye = p.eye();
+      const l = this.mgr.lineup(plan.id, eye, plan.target);
+      const aim = l ?? solveThrow(eye, plan.target);
+      if (!aim) return false;
+      this.nade = { id: plan.id, yaw: aim.yaw, pitch: aim.pitch, stage: 'switch', until: this.time + 4, precise: !!l };
+      return true;
+    }
+    if (this.time < this.nadeCooldown || !p.move.onGround || this.task.kind === 'plant' || this.task.kind === 'defuse') return false;
     const eye = p.eye();
     let id: GrenadeId | null = null;
     let target: Vec3 | null = null;
@@ -341,8 +364,8 @@ export class Bot {
     if (he) {
       id = 'hegrenade';
       target = he;
-    } else if (p.team === 'T' && !this.usedFlash && has('flashbang')) {
-      // Pop a flash over the entrance just before walking into the site.
+    } else if (p.team === 'T' && !this.usedFlash && has('flashbang') && this.task.kind !== 'stage' && !this.plans.length) {
+      // Pop a flash over the entrance just before walking into the site (executes plan their own).
       const e = this.mgr.siteEntranceFor(p);
       if (e && e.entrance.distanceTo(p.origin) < 700 && e.entrance.distanceTo(p.origin) > 250) {
         id = 'flashbang';
@@ -363,8 +386,21 @@ export class Bot {
     if (!aim) return false;
     // Flashes go high over the wall so they pop in the air.
     const pitch = id === 'flashbang' ? Math.max(aim.pitch, 25) : aim.pitch;
-    this.nade = { id, yaw: aim.yaw + (this.rand() - 0.5) * 6, pitch: pitch + (this.rand() - 0.5) * 4, stage: 'switch', until: this.time + 3 };
+    this.nade = { id, yaw: aim.yaw + (this.rand() - 0.5) * 6, pitch: pitch + (this.rand() - 0.5) * 4, stage: 'switch', until: this.time + 3, precise: false };
     return true;
+  }
+
+  /** A teammate's flash about to pop somewhere we'd see it. */
+  private friendlyFlash(): Vec3 | null {
+    const g = this.mgr.game;
+    const eye = this.p.eye();
+    for (const n of g.grenades.live) {
+      if (n.id !== 'flashbang' || n.thrower.team !== this.p.team) continue;
+      const left = n.detonateAt - g.time;
+      if (left > 0.9 || left < 0 || n.pos.distanceTo(eye) > 1500 || !g.world.visible(eye, n.pos)) continue;
+      return n.pos;
+    }
+    return null;
   }
 
   private throwNade(dt: number): void {
@@ -376,20 +412,31 @@ export class Bot {
       this.nade = null;
       return;
     }
-    this.turnAngles(n.yaw, n.pitch, dt, 1);
+    // Nobody lines up a throw with a teammate's flash about to pop in their face.
+    const flash = n.stage !== 'pull' ? this.friendlyFlash() : null;
+    if (flash) {
+      this.turnToward(p.eye().scale(2).sub(flash), dt, 1);
+      n.until += dt;
+      if (n.stage === 'aim') return;
+    } else this.turnAngles(n.yaw, n.pitch, dt, 1);
     switch (n.stage) {
       case 'switch':
         if (p.active !== 'grenade' || p.weapons.grenade?.def.id !== n.id) c.slot = 'grenade';
         else n.stage = 'aim';
         break;
-      case 'aim':
-        if (Math.abs(angleDiff(this.yaw, n.yaw)) < 3 && Math.abs(this.pitch - n.pitch) < 3 && this.time >= p.nextAttack) n.stage = 'pull';
+      case 'aim': {
+        // A lineup only works if you stand still and put the crosshair exactly on it.
+        const tol = n.precise ? 0.4 : 3;
+        const still = !n.precise || p.move.velocity.length2d() < 10;
+        if (Math.abs(angleDiff(this.yaw, n.yaw)) < tol && Math.abs(this.pitch - n.pitch) < tol && still && this.time >= p.nextAttack) n.stage = 'pull';
         break;
+      }
       case 'pull':
         // Hold for a tick to pull the pin, then let go to throw.
         if (!p.weapon?.pinPulled) c.attack = true;
         else {
           c.attack = false;
+          this.lastThrow = { id: n.id, time: this.time };
           this.nade = null;
           this.nadeCooldown = this.time + 2;
         }

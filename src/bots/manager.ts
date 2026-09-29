@@ -7,6 +7,8 @@ import { BombDefusal } from '../game/rules';
 import { inZone, type Team, type Zone } from '../maps/types';
 import type { RadioCommand } from '../game/radio';
 import { Bot, type Task } from './bot';
+import { along, findLineup, type Lineup } from './lineups';
+import { solveThrow, type GrenadeId } from '../game/grenades';
 import { botBuy } from './buy';
 import { NavGraph, type NavNode } from './nav';
 import { SKILLS, type Difficulty } from './skill';
@@ -55,6 +57,10 @@ export class BotManager {
   private radioAt = new Map<Team, number>();
   /** Site the Terrorists are going for this round. */
   targetSite: SitePlan | null = null;
+  /** T execute timeline: gather at the staging spots, throw utility, then go on the flash. */
+  private exec: { phase: 'gather' | 'plan' | 'util'; release: number; plan?: Generator<void, number> } | null = null;
+  /** Retake: set once the CTs are grouped; the entry waits for their flashes to pop. */
+  private retakeRelease: number | null = null;
 
   constructor(
     readonly game: Game,
@@ -192,6 +198,21 @@ export class BotManager {
     return null;
   }
 
+  private lineups = new Map<string, Lineup | null>();
+  /** Lineup searches run so far, so planners can spread fresh ones over several ticks. */
+  private lineupSearches = 0;
+
+  /** Lineups are cached by where the thrower stands (its nav node) and the target, like a learned spot. */
+  lineup(id: GrenadeId, eye: Vec3, target: Vec3): Lineup | null {
+    const node = this.nav.nearest(eye.clone().add(new Vec3(0, -64, 0)));
+    const key = `${id}:${node?.id ?? 'x'}:${Math.round(target.x / 32)}:${Math.round(target.z / 32)}`;
+    if (!this.lineups.has(key)) {
+      this.lineups.set(key, findLineup(this.game.world, id, eye, target));
+      this.lineupSearches++;
+    }
+    return this.lineups.get(key)!;
+  }
+
   randomNode(): NavNode {
     return this.nav.nodes[Math.floor(this.game.rand() * this.nav.nodes.length)];
   }
@@ -279,6 +300,8 @@ export class BotManager {
     this.contacts = [];
     this.rotated.clear();
     this.retakeIssued = false;
+    this.retakeRelease = null;
+    this.exec = { phase: 'gather', release: 0 };
     for (const b of this.bots) b.onSpawn();
 
     // Shopping, as a team.
@@ -529,27 +552,44 @@ export class BotManager {
         this.radio(b.p, 'Falling back!');
       }
     }
-    // T execute: go once the staged group has gathered, contact is made, or time is getting on.
-    if (!d.bomb) {
+    // T execute: gather, then utility, then everyone goes as the flashes pop. Close contact at
+    // the stage skips straight to the go, since waiting on lineups while getting shot is how you
+    // lose a round. A fight on the way there, or a long duel from the stage, is just that bot's fight.
+    if (!d.bomb && this.exec) {
       const staged = this.bots.filter((b) => b.p.team === 'T' && b.p.alive && b.task.kind === 'stage');
-      if (staged.length) {
+      const contact = staged.some((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 500 && b.enemy && b.enemy.alive && b.enemy.origin.distanceTo(b.p.origin) < 1000 && now - b.lastSeenTime() < 1);
+      const go = () => {
+        for (const b of staged) if (b.task.kind === 'stage') b.task = b.task.then;
+        const caller = staged[0];
+        if (caller && this.targetSite) this.radio(caller.p, `Go go go! Hitting ${this.targetSite.zone.name}!`);
+        this.exec = null;
+      };
+      if (!staged.length) this.exec = null;
+      else if (contact) go();
+      else if (this.exec.phase === 'gather') {
         const ready = staged.every((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 220);
-        const contact = staged.some((b) => b.enemy && b.enemy.alive && now - b.lastSeenTime() < 1);
         const late = now - d.roundStart > 50 || d.timeLeft < 50;
-        if (ready || contact || late) {
-          for (const b of staged) if (b.task.kind === 'stage') b.task = b.task.then;
-          const caller = staged[0];
-          if (caller && this.targetSite) this.radio(caller.p, `Go go go! Hitting ${this.targetSite.zone.name}!`);
-        }
+        if (ready || late) this.exec = { phase: 'plan', release: 0, plan: this.executeUtility(staged) };
       }
+      if (this.exec?.phase === 'plan') {
+        const r = this.exec.plan!.next();
+        if (r.done) this.exec = { phase: 'util', release: r.value };
+      }
+      if (this.exec?.phase === 'util' && now >= this.exec.release) go();
     }
-    // Release the retake once everyone's staged, or the clock forces it.
+    // Release the retake once everyone's staged (or the clock forces it), flashing the site first.
     if (d.bomb && !d.bomb.defused) {
       const staged = this.bots.filter((b) => b.p.team === 'CT' && b.p.alive && b.task.kind === 'stage');
       if (staged.length) {
         const ready = staged.every((b) => b.task.kind === 'stage' && b.p.origin.distanceTo(b.task.spot) < 200);
         const late = this.bombTimeLeft() < 18 || g.time - this.retakeStart > 12;
-        if (ready || late) for (const b of staged) if (b.task.kind === 'stage') b.task = b.task.then;
+        if (this.retakeRelease === null && (ready || late)) {
+          const flashers = late && this.bombTimeLeft() < 12 ? [] : staged.filter((b) => (b.p.grenades.flashbang ?? 0) > 0).slice(0, 2);
+          flashers.forEach((b, i) => b.plans.push({ id: 'flashbang', target: d.bomb!.pos.clone(), at: now + i * 0.3 }));
+          this.retakeRelease = flashers.length ? now + 0.3 * flashers.length + 1.1 : now;
+          if (flashers.length) this.radio(flashers[0].p, 'Flashing in, go on the pop!');
+        }
+        if (this.retakeRelease !== null && now >= this.retakeRelease) for (const b of staged) if (b.task.kind === 'stage') b.task = b.task.then;
       }
     }
     // Once the Ts are all dead, every CT goes for the bomb.
@@ -565,6 +605,100 @@ export class BotManager {
     if (ctsAlive.length === 1 && !g.players.some((p) => !p.isBot && p.team === 'CT' && p.alive) && ctsAlive[0].task.kind === 'hold' && d.timeLeft < 40) {
       ctsAlive[0].task = { kind: 'hunt', dest: null };
     }
+  }
+
+  /**
+   * Hand out the execute's utility and return when the entry should go. Smokes cut the lines
+   * from the holds that watch the entrance we're using (and the CT rotation into the site), an
+   * HE goes into the hold cluster, flashes pop over the site once the smokes have bloomed, and
+   * the entry is timed to come round the corner as the flashes go off. Runs over a few ticks,
+   * one fresh lineup search per tick, so the execute doesn't hitch the frame it starts on.
+   */
+  private *executeUtility(staged: Bot[]): Generator<void, number> {
+    const site = this.targetSite;
+    if (!site || !site.tEntrances.length) return this.game.time;
+    const w = this.game.world;
+    const centroid = staged.reduce((a, b) => a.add(b.p.origin), new Vec3()).scale(1 / staged.length);
+    const entrance = site.tEntrances.reduce((a, e) => (a.distanceTo(centroid) < e.distanceTo(centroid) ? a : e));
+    const entranceGround = this.nav.nearest(entrance.clone().add(new Vec3(0, -EYE, 0)))?.pos ?? entrance;
+
+    // Cross smokes: the holds that can see this entrance from a distance, blocked partway along.
+    const watchers = site.ctHolds.filter((h) => h.pos.distanceTo(entranceGround) > 500 && w.visible(h.pos.clone().add(new Vec3(0, EYE, 0)), entrance));
+    const smokes: Vec3[] = [];
+    for (const h of watchers) {
+      const spot = this.nav.nearest(along(entranceGround, h.pos, 320))?.pos;
+      if (spot && smokes.every((s) => s.distanceTo(spot) > 320)) smokes.push(spot);
+      if (smokes.length >= 4) break;
+    }
+    if (site.ctEntrances.length) {
+      const ct = site.ctEntrances.reduce((a, e) => (a.distanceTo(entrance) > e.distanceTo(entrance) ? a : e));
+      const spot = this.nav.nearest(ct.clone().add(new Vec3(0, -EYE, 0)))?.pos;
+      if (spot && smokes.every((s) => s.distanceTo(spot) > 320)) smokes.push(spot);
+    }
+
+    const has = (b: Bot, id: GrenadeId) => (b.p.grenades[id] ?? 0) > 0;
+    const used = new Set<Bot>();
+    // The bomb carrier keeps his hands free if anyone else can throw.
+    const throwers = (id: GrenadeId) => [...staged].sort((a, b) => Number(!!a.p.weapons.c4) - Number(!!b.p.weapons.c4)).filter((b) => has(b, id));
+    // Only hand a throw to someone who actually has a lineup for it from where they stand.
+    const canThrow = (b: Bot, id: GrenadeId, target: Vec3) => b.p.alive && !!solveThrow(b.p.eye(), target) && !!this.lineup(id, b.p.eye(), target);
+    const picks: { b: Bot; id: GrenadeId; target: Vec3 }[] = [];
+    let searched = this.lineupSearches;
+    for (const target of smokes) {
+      if (picks.length >= 2) break;
+      for (const b of throwers('smokegrenade')) {
+        if (used.has(b)) continue;
+        const ok = canThrow(b, 'smokegrenade', target);
+        if (this.lineupSearches !== searched) {
+          searched = this.lineupSearches;
+          yield;
+        }
+        if (!ok) continue;
+        used.add(b);
+        picks.push({ b, id: 'smokegrenade', target });
+        break;
+      }
+    }
+    const smoked = picks.length;
+    // An HE into the hold cluster, or failing that into whichever single hold someone can reach.
+    const heTargets = watchers.length ? [watchers.reduce((a, h) => a.add(h.pos), new Vec3()).scale(1 / watchers.length), ...watchers.slice(0, 3).map((h) => h.pos)] : [];
+    heSearch: for (const target of heTargets) {
+      for (const b of [...throwers('hegrenade')].sort((a, b) => Number(used.has(a)) - Number(used.has(b)))) {
+        const ok = canThrow(b, 'hegrenade', target);
+        if (this.lineupSearches !== searched) {
+          searched = this.lineupSearches;
+          yield;
+        }
+        if (!ok) continue;
+        picks.push({ b, id: 'hegrenade', target });
+        used.add(b);
+        break heSearch;
+      }
+    }
+    const now = this.game.time;
+    let t = now;
+    for (const x of picks) {
+      if (!x.b.p.alive) continue;
+      x.b.plans.push({ id: x.id, target: x.target, at: t });
+      t += 0.35;
+    }
+    // Flashes once the smokes are up (they take ~1.5s to land and bloom).
+    let flashAt = smoked ? now + 1.8 : t;
+    let flashes = 0;
+    // Whoever has the least to do throws them; a smoker can follow up with a flash.
+    for (const b of throwers('flashbang').sort((a, b) => a.plans.length - b.plans.length)) {
+      if (flashes >= 2) break;
+      if (!b.p.alive) continue;
+      b.plans.push({ id: 'flashbang', target: site.center.pos.clone(), at: flashAt });
+      flashAt += 0.35;
+      flashes++;
+    }
+    const caller = staged[0];
+    if (caller && (smoked || flashes)) this.radio(caller.p, `${smoked ? 'Smokes out' : 'Flash out'} on ${site.zone.name}, go on the pop!`);
+    // Flashes pop 1.5s after the throw; start the entry a little before so they round the corner on it.
+    // Grenade prep (switch, aim, throw) adds about half a second on top.
+    if (flashes) return flashAt - 0.35 + 0.5 + 1.1;
+    return smoked ? now + 2.5 : now;
   }
 
   /** CTs rotate toward a site once enemies show up on its approach. */

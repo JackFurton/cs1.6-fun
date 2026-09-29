@@ -1,4 +1,4 @@
-import { Trace } from '../engine/trace';
+import { CollisionWorld, Trace } from '../engine/trace';
 import { Vec3, angleVectors } from '../engine/vec';
 import type { Game } from './game';
 import type { Player } from './player';
@@ -52,6 +52,58 @@ export function throwVelocity(yaw: number, pitch: number, playerVel: Vec3, out =
   return out.copy(f).scale(speed).add(playerVel);
 }
 
+/**
+ * One physics step for a grenade: half gravity, bounces off walls, loses speed on the floor.
+ * Shared by the live grenades and by bots working out where a throw would land.
+ */
+export function stepGrenade(world: CollisionWorld, pos: Vec3, vel: Vec3, dt: number, tr: Trace): { stopped: boolean; impact: number } {
+  let stopped = false;
+  let impact = 0;
+  // 1.6 grenades use half gravity.
+  vel.y -= 400 * dt;
+  let left = dt;
+  for (let bump = 0; bump < 3 && left > 0; bump++) {
+    const to = pos.clone().addScaled(vel, left);
+    world.trace(pos, to, MINS, MAXS, tr);
+    pos.copy(tr.endpos);
+    if (tr.fraction >= 1) break;
+    left -= left * tr.fraction;
+    const nrm = tr.normal;
+    const vn = vel.dot(nrm);
+    impact = Math.max(impact, Math.abs(vn));
+    vel.addScaled(nrm, -vn * 1.45);
+    if (nrm.y > 0.7) {
+      vel.scale(0.55);
+      if (vel.length() < 20) {
+        vel.set(0, 0, 0);
+        stopped = true;
+        break;
+      }
+    } else {
+      vel.scale(0.7);
+    }
+  }
+  return { stopped, impact };
+}
+
+/** Where a grenade thrown from `eye` at yaw/pitch ends up: the fuse point for HE/flash, the resting point for smoke. */
+export function simulateThrow(world: CollisionWorld, id: GrenadeId, eye: Vec3, yaw: number, pitch: number, playerVel = new Vec3()): Vec3 {
+  const f = new Vec3();
+  angleVectors(yaw, pitch, f);
+  const tr = new Trace();
+  world.trace(eye, eye.clone().addScaled(f, 16), MINS, MAXS, tr);
+  const pos = tr.endpos.clone();
+  const vel = throwVelocity(yaw, pitch, playerVel);
+  // Same step and detonation rules as GrenadeSystem.update, so the prediction is exact.
+  const dt = 0.01;
+  let stopped = false;
+  // Move, then check the fuse, then advance the clock: the order GrenadeSystem.update runs in.
+  for (let t = 0; ; t += dt) {
+    if (!stopped) stopped = stepGrenade(world, pos, vel, dt, tr).stopped;
+    if (t >= FUSE && (id !== 'smokegrenade' || stopped || vel.length() < 60 || t > FUSE + 3)) return pos;
+  }
+}
+
 export class GrenadeSystem {
   readonly live: Grenade[] = [];
   readonly smokes: Smoke[] = [];
@@ -88,30 +140,9 @@ export class GrenadeSystem {
   }
 
   private move(n: Grenade, dt: number): void {
-    const g = this.g;
-    // 1.6 grenades use half gravity.
-    n.vel.y -= 400 * dt;
-    let left = dt;
-    for (let bump = 0; bump < 3 && left > 0; bump++) {
-      const to = n.pos.clone().addScaled(n.vel, left);
-      g.world.trace(n.pos, to, MINS, MAXS, this.tr);
-      n.pos.copy(this.tr.endpos);
-      if (this.tr.fraction >= 1) break;
-      left -= left * this.tr.fraction;
-      const nrm = this.tr.normal;
-      const vn = n.vel.dot(nrm);
-      n.vel.addScaled(nrm, -vn * 1.45);
-      if (nrm.y > 0.7) {
-        n.vel.scale(0.55);
-        if (n.vel.length() < 20) {
-          n.vel.set(0, 0, 0);
-          n.stopped = true;
-        }
-      } else {
-        n.vel.scale(0.7);
-      }
-      if (Math.abs(vn) > 60) g.emit({ type: 'sound', name: 'bounce', pos: n.pos.clone() });
-    }
+    const hit = stepGrenade(this.g.world, n.pos, n.vel, dt, this.tr);
+    if (hit.stopped) n.stopped = true;
+    if (hit.impact > 60) this.g.emit({ type: 'sound', name: 'bounce', pos: n.pos.clone() });
   }
 
   private detonate(n: Grenade): void {
