@@ -16,22 +16,52 @@ const INTERP = 0.1;
 
 /** Resolve what the user typed into a WebSocket URL; blank means the server this page came from. */
 export function serverUrl(addr: string): string {
-  if (!addr) return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
-  if (/^wss?:\/\//.test(addr)) return addr;
-  return `ws://${addr.includes(':') ? addr : `${addr}:${DEFAULT_PORT}`}`;
+  addr = addr.trim();
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (!addr) return `${protocol}//${location.host}/`;
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(addr);
+  const url = new URL(hasScheme ? addr : `${protocol}//${addr}`);
+  if (url.protocol === 'http:') url.protocol = 'ws:';
+  if (url.protocol === 'https:') url.protocol = 'wss:';
+  if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) {
+    throw new Error('Enter an HTTP, HTTPS, or WebSocket server address');
+  }
+  if (!hasScheme && !url.port) url.port = String(DEFAULT_PORT);
+  url.search = '';
+  url.hash = '';
+  return url.href;
 }
 
 /** Connect and wait for the server to say which map it's running. */
 export function connect(url: string): Promise<{ ws: WebSocket; info: ServerInfo }> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    const fail = () => reject(new Error(`Couldn't reach a server at ${url}`));
-    ws.onerror = fail;
-    ws.onclose = fail;
+    const timer = setTimeout(() => fail(`Connection timed out after 10 seconds: ${url}`), 10000);
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.onerror = ws.onclose = ws.onmessage = null;
+    };
+    const fail = (message: string) => {
+      cleanup();
+      if (ws.readyState < WebSocket.CLOSING) ws.close();
+      reject(new Error(message));
+    };
+    ws.onerror = ws.onclose = () => fail(`Couldn't reach the game server at ${url}`);
     ws.onmessage = (e) => {
-      const msg = JSON.parse(String(e.data)) as ServerMsg;
+      let msg: ServerMsg;
+      try {
+        msg = JSON.parse(String(e.data)) as ServerMsg;
+      } catch {
+        fail('The address responded, but did not send a valid game message');
+        return;
+      }
+      if (!msg || typeof msg !== 'object') return;
       if (msg.t === 'info') {
-        ws.onerror = ws.onclose = ws.onmessage = null;
+        if (!msg.info || typeof msg.info.map !== 'string' || !['defuse', 'dm'].includes(msg.info.mode)) {
+          fail('The address did not send valid game server information');
+          return;
+        }
+        cleanup();
         resolve({ ws, info: msg.info });
       }
     };
@@ -143,14 +173,16 @@ export class NetClient {
     for (const ps of s.players) {
       seen.add(ps.id);
       let p = this.byId.get(ps.id);
+      const introduced = !p;
       if (!p) {
         p = new Player(ps.id, ps.name, ps.team, ps.bot);
         p.move.origin.set(...ps.pos);
+        p.yaw = ps.yaw;
+        p.pitch = ps.pitch;
         p.prevOrigin.copy(p.move.origin);
         this.byId.set(ps.id, p);
         this.game.players.push(p);
         this.boxes.set(p, boxBrush(new Vec3(), new Vec3(), 'player'));
-        if (ps.id === this.localId) this.onWelcome(p);
       }
       applyPlayerState(p, ps);
       if (ps.id === this.localId) this.reconcile(p, ps);
@@ -158,6 +190,7 @@ export class NetClient {
         p.punchPitch = ps.punch[0];
         p.punchYaw = ps.punch[1];
       }
+      if (introduced && ps.id === this.localId) this.onWelcome(p);
     }
     for (const [id, p] of this.byId) {
       if (seen.has(id)) continue;

@@ -35,7 +35,9 @@ One person hosts a dedicated server (bots fill the empty slots):
 ./play.sh host de_mirage dm # any map, deathmatch
 ```
 
-It prints addresses like `http://192.168.1.20:27015/?connect`. Friends open that in a browser, or use Play with Friends in the menu and type the address. Port 27015 must be reachable: the same network works as-is; over the internet use Tailscale/ZeroTier or forward the port. Under WSL, LAN friends need WSL's mirrored networking or a Windows port proxy.
+It prints addresses like `http://192.168.1.20:27015/?connect`. These private addresses work on the host’s local network. Friends on another network need a public address with TCP port 27015 forwarded, or an HTTPS tunnel link. Under WSL, LAN friends need WSL’s mirrored networking or a Windows port proxy.
+
+The Join menu accepts HTTP, HTTPS, and WebSocket links. Connections that do not complete the game handshake show an error after ten seconds, with a link back to the menu.
 
 The server is authoritative at 100 ticks per second and sends 30 snapshots a second. Your own movement is predicted and replayed, and other players are drawn 100ms behind. There's no lag compensation yet, so on high ping you'll need to lead moving targets.
 
