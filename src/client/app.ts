@@ -228,7 +228,7 @@ export class App {
         });
       }
       this.audio.unlock();
-      void this.input.lock(this.settings.rawInput);
+      this.lockAgain();
     };
     this.input.setBinds(this.settings.binds);
     this.menu.input = this.input;

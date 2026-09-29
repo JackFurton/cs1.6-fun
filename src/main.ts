@@ -23,10 +23,9 @@ if (view && MAPS[view]) {
   // Network game: find out which map the server runs before building the world.
   const note = document.createElement('div');
   note.className = 'connecting';
-  note.textContent = 'Connecting…';
+  note.textContent = 'Connecting… (up to 10 seconds)';
   root.appendChild(note);
-  const url = serverUrl(params.get('connect') ?? '');
-  connect(url)
+  Promise.resolve().then(() => connect(serverUrl(params.get('connect') ?? '')))
     .then(({ ws, info }) => {
       note.remove();
       params.set('map', info.map);
@@ -34,7 +33,14 @@ if (view && MAPS[view]) {
       run(new App(root, params, { ws, info }));
     })
     .catch((err: Error) => {
-      note.innerHTML = `${err.message}.<br><a href="./">Back to the menu</a>`;
+      const message = document.createElement('p');
+      message.textContent = err.message;
+      const help = document.createElement('p');
+      help.textContent = 'Friends on another network need a public or tunnel link. A 192.168.x.x address only works on the host’s local network.';
+      const back = document.createElement('a');
+      back.href = './';
+      back.textContent = 'Back to the menu';
+      note.replaceChildren(message, help, back);
     });
 } else {
   run(new App(root, params));
