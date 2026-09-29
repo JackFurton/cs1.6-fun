@@ -22,9 +22,11 @@ export type GameEvent =
   | { type: 'message'; text: string; color?: string }
   | { type: 'sound'; name: string; pos: Vec3 | null }
   | { type: 'round'; phase: 'freeze' | 'live' | 'matchover'; round: number }
-  | { type: 'roundEnd'; winner: Team; reason: 'elimination' | 'time' | 'bomb' | 'defuse' }
+  | { type: 'roundEnd'; winner: Team; reason: 'elimination' | 'time' | 'bomb' | 'defuse' | 'nuke' }
   | { type: 'planted'; player: Player; site: string }
   | { type: 'explosion'; pos: Vec3; big: boolean }
+  | { type: 'nukeLaunch'; pos: Vec3; site: string; impactAt: number }
+  | { type: 'nukeImpact'; pos: Vec3 }
   | { type: 'respawn'; player: Player }
   | { type: 'radio'; player: Player; text: string }
   | { type: 'grenade'; player: Player; id: WeaponId }

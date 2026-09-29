@@ -49,6 +49,10 @@ export class Audio {
   private reverb!: ConvolverNode;
   private reverbSend!: GainNode;
   private listener = { x: 0, y: 0, z: 0 };
+  private nukeSources: AudioScheduledSourceNode[] = [];
+  private strategicClip: AudioBuffer | null = null;
+  private readonly strategicData = fetch('audio/strategic-launch-detected.mp3')
+    .then((r) => r.ok ? r.arrayBuffer() : null).catch(() => null);
   /** How roomy the map sounds: 0 open desert, 1 big hall. */
   roominess = 0.5;
 
@@ -84,6 +88,9 @@ export class Audio {
     this.reverbSend.gain.value = 0.35;
     this.reverbSend.connect(this.reverb).connect(this.master);
     void this.loadPack();
+    void this.strategicData.then(async (data) => {
+      if (data) this.strategicClip = await ctx.decodeAudioData(data);
+    }).catch(() => { /* Speech synthesis remains available if decoding fails. */ });
   }
 
   /** Loads any 1.6 sound files the user dropped into public/sounds/cstrike/. */
@@ -376,6 +383,72 @@ export class Audio {
     const t = this.ctx!.currentTime;
     this.noiseBurst(dest, t, big ? 2.5 : 1.2, 'lowpass', big ? 500 : 900, 0.7, 1, 0.005);
     this.tone(dest, t, big ? 1.5 : 0.7, 90, 25, 1);
+  }
+
+  strategicAlert(): boolean {
+    if (!this.ctx || !this.strategicClip) return false;
+    const dest = this.out(null, 1);
+    if (!dest) return false;
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.strategicClip;
+    source.connect(dest);
+    source.start();
+    return true;
+  }
+
+  /** Air rushing past the incoming missile, building toward impact. */
+  nukeLaunch(seconds: number): void {
+    this.stopNukeWarning();
+    const dest = this.out(null, 0.35);
+    if (!dest || seconds <= 0) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const rush = ctx.createBufferSource();
+    rush.buffer = this.noise;
+    rush.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(250, t);
+    filter.frequency.exponentialRampToValueAtTime(6500, t + seconds);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.005, t);
+    gain.gain.exponentialRampToValueAtTime(1, t + seconds);
+    rush.connect(filter).connect(gain).connect(dest);
+    rush.start(t);
+    rush.stop(t + seconds);
+    this.nukeSources = [rush];
+  }
+
+  stopNukeWarning(): void {
+    for (const source of this.nukeSources) {
+      source.stop();
+      source.disconnect();
+    }
+    this.nukeSources = [];
+  }
+
+  nukeImpact(): void {
+    this.stopNukeWarning();
+    const dest = this.out(null, 1.2);
+    if (!dest) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    this.noiseBurst(dest, t, 1, 'lowpass', 2200, 0.7, 1, 0.005);
+    this.tone(dest, t, 4, 110, 18, 1.2);
+    this.tone(dest, t + 0.1, 3, 52, 24, 0.7, 'triangle');
+    const rumble = ctx.createBufferSource();
+    rumble.buffer = this.noise;
+    rumble.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1600, t);
+    filter.frequency.exponentialRampToValueAtTime(100, t + 7);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.7, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 7);
+    rumble.connect(filter).connect(gain).connect(dest);
+    rumble.start(t);
+    rumble.stop(t + 7);
   }
 
   hiss(pos: Vec3 | null): void {

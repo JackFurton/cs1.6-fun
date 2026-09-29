@@ -3,6 +3,7 @@ import { emptyCmd } from '../src/game/usercmd';
 import type { ServerMsg, Snapshot } from '../src/net/protocol';
 import { decodeEvent } from '../src/net/protocol';
 import { Room, type Client } from '../src/server/room';
+import { BombDefusal } from '../src/game/rules';
 
 function fakeClient() {
   const inbox: ServerMsg[] = [];
@@ -62,4 +63,53 @@ test('leaving puts a bot back', () => {
   room.disconnect(a.client);
   expect(room.game.players.filter((p) => p.team === 'T')).toHaveLength(5);
   expect(room.game.players.every((p) => p.isBot)).toBe(true);
+});
+
+test('server accepts a Silencer launch through player commands and snapshots it to a late joiner', () => {
+  const room = new Room({ map: 'de_dust2', mode: 'defuse', difficulty: 'normal', teamSize: 1 });
+  const a = fakeClient();
+  room.connect(a.client);
+  room.receive(a.client, { t: 'hello', name: 'Operator', team: 'CT', model: 0 });
+  room.receive(a.client, { t: 'buy', item: 'silencer' });
+  const owner = room.game.players.find((p) => !p.isBot)!;
+  expect(owner.weapon?.def.id).toBe('silencer');
+  room.bots.update = () => {};
+  for (let i = 0; i < 600; i++) room.tick();
+  room.receive(a.client, { t: 'cmd', seq: 1, cmd: { ...emptyCmd(), attack2: true } });
+  room.tick();
+  room.receive(a.client, { t: 'cmd', seq: 2, cmd: emptyCmd() });
+  for (let i = 0; i < 30; i++) room.tick();
+  room.receive(a.client, { t: 'cmd', seq: 3, cmd: { ...emptyCmd(), attack: true } });
+  room.tick();
+  const late = fakeClient();
+  room.connect(late.client);
+  for (let i = 0; i < 4; i++) room.tick();
+  expect(late.lastSnap()?.nuke?.site).toBe('B');
+  expect(late.lastSnap()?.nuke?.owner).toBe(owner.id);
+  expect(a.lastSnap()?.players.find((p) => p.id === owner.id)?.weapons.primary?.clip).toBe(0);
+  for (let i = 0; i < 1000; i++) room.tick();
+  expect(late.lastSnap()?.nuke?.exploded).toBe(true);
+  expect(late.lastSnap()?.players.every((p) => !p.alive)).toBe(true);
+  expect((room.mode as BombDefusal).lastReason).toBe('nuke');
+  const events = a.inbox.flatMap((m) => m.t === 'events' ? m.e : []) as { type: string }[];
+  expect(events.filter((e) => e.type === 'nukeLaunch')).toHaveLength(1);
+  expect(events.filter((e) => e.type === 'nukeImpact')).toHaveLength(1);
+});
+
+test('a deathmatch late join spawns immediately after a nuke and restores the map', () => {
+  const room = new Room({ map: 'aim_arena', mode: 'dm', difficulty: 'normal', teamSize: 1 });
+  room.bots.update = () => {};
+  const owner = room.game.players[0];
+  room.game.equip(owner, 'silencer');
+  expect(room.game.nukes.launch(owner)).toBe(true);
+  room.game.time = room.game.nukes.strike!.impactAt;
+  room.tick();
+  expect(room.game.players.every((p) => !p.alive)).toBe(true);
+  const late = fakeClient();
+  room.connect(late.client);
+  room.receive(late.client, { t: 'hello', name: 'Late joiner', team: 'CT', model: 0 });
+  expect(room.game.players.find((p) => !p.isBot)?.alive).toBe(true);
+  expect(room.game.nukes.strike).toBeNull();
+  for (let i = 0; i < 4; i++) room.tick();
+  expect(late.lastSnap()?.nuke).toBeNull();
 });

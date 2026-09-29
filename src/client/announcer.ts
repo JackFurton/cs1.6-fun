@@ -2,11 +2,12 @@ import type { Audio } from './audio';
 
 export type AnnouncerPack = 'classic' | 'chef' | 'off';
 
-export type Cue = 'go' | 'planted' | 'defused' | 'ctwin' | 'terwin' | 'spotted' | 'fireinhole' | 'rotate' | 'headshot' | 'multikill' | 'lastalive' | 'matchwin' | 'matchlose' | 'flashed';
+export type Cue = 'go' | 'planted' | 'defused' | 'ctwin' | 'terwin' | 'spotted' | 'fireinhole' | 'rotate' | 'headshot' | 'multikill' | 'lastalive' | 'matchwin' | 'matchlose' | 'flashed' | 'strategic';
 
 /** Lines per cue; one is picked at random. Classic follows the 1.6 radio. */
 const LINES: Record<Exclude<AnnouncerPack, 'off'>, Partial<Record<Cue, string[]>>> = {
   classic: {
+    strategic: ['Strategic launch detected.'],
     go: ['Go go go!', 'Move out!', "Let's go!", 'Lock and load.', 'Stick together, team.'],
     planted: ['The bomb has been planted.'],
     defused: ['Bomb has been defused.'],
@@ -21,6 +22,7 @@ const LINES: Record<Exclude<AnnouncerPack, 'off'>, Partial<Record<Cue, string[]>
   },
   // An original over-the-top TV chef, not any real person's lines.
   chef: {
+    strategic: ['Strategic launch detected.'],
     go: ['Right! Service! Go go go!', "Come on, move it! Tonight's special is Terrorist!", "Let's cook!", "Hands on the grips, heads on a swivel. Service!"],
     planted: ["The bomb's in the oven! Thirty-five seconds!", "It's planted! Somebody get in there before it's burnt to a crisp!"],
     defused: ['Defused! Finally, someone who follows a recipe!', 'Beautiful. Absolutely beautiful defuse.'],
@@ -71,6 +73,7 @@ export class Announcer {
   pack: AnnouncerPack = 'classic';
   private voice: SpeechSynthesisVoice | null = null;
   private lastCue = new Map<Cue, number>();
+  private priorityUntil = 0;
 
   constructor(private audio: Audio) {
     if (typeof speechSynthesis === 'undefined') return;
@@ -94,8 +97,14 @@ export class Announcer {
   say(cue: Cue, minGap = 2): void {
     if (this.pack === 'off') return;
     const now = performance.now() / 1000;
+    if (now < this.priorityUntil) return;
     if ((this.lastCue.get(cue) ?? -10) > now - minGap) return;
     this.lastCue.set(cue, now);
+    if (cue === 'strategic') {
+      this.priorityUntil = now + 3;
+      if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
+      if (this.audio.strategicAlert()) return;
+    }
     // Classic uses the real 1.6 radio wav when the user has the sound pack.
     const file = RADIO_FILE[cue];
     if (this.pack === 'classic' && file && this.audio.radioSample(file)) return;
@@ -107,6 +116,10 @@ export class Announcer {
     if (this.voice) u.voice = this.voice;
     u.rate = this.pack === 'chef' ? 1.12 : 1.05;
     u.pitch = this.pack === 'chef' ? 0.9 : 0.85;
+    if (cue === 'strategic') {
+      u.rate = 0.9;
+      u.pitch = 0.65;
+    }
     u.volume = Math.min(1, this.audio.volume * 1.4);
     speechSynthesis.speak(u);
   }

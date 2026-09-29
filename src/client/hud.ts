@@ -49,6 +49,7 @@ export class Hud {
   private frames = 0;
   private lastFpsTime = performance.now();
   private hurtLevel = 0;
+  private nukeTarget: HTMLDivElement;
 
   constructor(
     parent: HTMLElement,
@@ -71,6 +72,7 @@ export class Hud {
       <div class="progress"><div class="progress-label"></div><div class="progress-bar"><i></i></div></div>
       <div class="icons"><span class="ic-buy">$</span><span class="ic-c4">C4</span><span class="ic-kit">KIT</span></div>
       <div class="spectating"></div>
+      <div class="nuke-weapon" hidden><b>SILENCER / STRATEGIC CONTROL</b><span></span><small>Mouse1: launch · Mouse2: change target · Impact in 10 seconds</small></div>
       <div class="chat"></div>
       <div class="hud-bottom">
         <div class="hp"><svg viewBox="0 0 10 10" class="icon"><path d="M3.5 0h3v3.5H10v3H6.5V10h-3V6.5H0v-3h3.5z"/></svg><span class="health">100</span></div>
@@ -99,6 +101,7 @@ export class Hud {
     this.progress = q('.progress');
     this.icons = q('.icons');
     this.spectating = q('.spectating');
+    this.nukeTarget = q('.nuke-weapon');
     this.dmgDirs = { l: q('.dmgdir.l'), r: q('.dmgdir.r'), t: q('.dmgdir.t'), b: q('.dmgdir.b') };
     this.applySettings();
   }
@@ -153,6 +156,11 @@ export class Hud {
   setSpectating(text: string | null): void {
     this.spectating.style.display = text ? 'block' : 'none';
     if (text) this.spectating.textContent = text;
+  }
+
+  setNukeTarget(site: string | null, armed: boolean): void {
+    this.nukeTarget.hidden = site === null;
+    if (site !== null) txt(this.nukeTarget.querySelector('span')!, armed ? `TARGET: ${site === 'Arena' ? 'ARENA' : `BOMBSITE ${site}`} · WARHEAD READY` : 'WARHEAD EXPENDED');
   }
 
   chat(text: string, team: 'T' | 'CT'): void {

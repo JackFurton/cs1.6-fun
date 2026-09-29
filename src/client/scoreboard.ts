@@ -7,7 +7,7 @@ function esc(s: string): string {
 
 export interface RoundResult {
   winner: Team;
-  reason: 'elimination' | 'time' | 'bomb' | 'defuse';
+  reason: 'elimination' | 'time' | 'bomb' | 'defuse' | 'nuke';
   mvp: Player | null;
 }
 
@@ -19,7 +19,7 @@ export interface ScoreInfo {
   matchOver: boolean;
 }
 
-const REASON_ICON = { elimination: '☠', time: '⌚︎', bomb: '✹', defuse: '✂' } as const;
+const REASON_ICON = { elimination: '☠', time: '⌚︎', bomb: '✹', defuse: '✂', nuke: '☢' } as const;
 
 export class Scoreboard {
   readonly el: HTMLDivElement;

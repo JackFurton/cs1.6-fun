@@ -18,6 +18,9 @@ export class Renderer {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   private sky: THREE.Mesh;
+  private mapMeshes: MapMeshes;
+  private normalFog: THREE.Fog | null;
+  private blastFog = new THREE.Fog(0x352a24, 2000, 14000);
   /** Scope FOV (4:3 horizontal) overriding the settings FOV while zoomed. */
   private zoomFov: number | null = null;
   private world: CollisionWorld;
@@ -52,10 +55,12 @@ export class Renderer {
     this.world = new CollisionWorld(map.brushes.filter((b) => !b.clip), { includeDetail: true });
     const flat = lightmapTexture(1, new Uint8Array([171, 171, 171, 255]));
     const meshes = buildMapMeshes(map.brushes, this.gl.capabilities.getMaxAnisotropy(), q.luxel, flat);
+    this.mapMeshes = meshes;
     this.scene.add(meshes.group);
     this.lightingReady = this.bake(map, meshes, lp);
 
     if (map.fog) this.scene.fog = new THREE.Fog(map.fog[0], map.fog[1], map.fog[2]);
+    this.normalFog = this.scene.fog as THREE.Fog | null;
     this.sky = makeSky(map.sky.top, map.sky.horizon);
     this.scene.add(this.sky);
 
@@ -136,6 +141,13 @@ export class Renderer {
     this.camera.position.set(x, y, z);
     this.camera.rotation.set(pitch * DEG, yaw * DEG, roll * DEG);
     this.sky.position.copy(this.camera.position);
+  }
+
+  setNuclearBlast(pos: Vec3 | null, age = 0): void {
+    this.mapMeshes.setBlast(pos, age);
+    this.scene.fog = pos ? this.blastFog : this.normalFog;
+    const burn = pos ? Math.min(1, Math.max(0, age / 2)) : 0;
+    (this.sky.material as THREE.MeshBasicMaterial).color.setRGB(1 - burn * 0.45, 1 - burn * 0.65, 1 - burn * 0.8);
   }
 
   render(vm?: ViewModel): void {

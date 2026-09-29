@@ -86,10 +86,41 @@ function c4(g: THREE.Group): Spec {
   return { muzzle: new THREE.Vector3(0, 0, -4) };
 }
 
+/** A handheld take on the Aeon Silencer: ivory armor, swept pods, and green launch hardware. */
+function silencer(g: THREE.Group): Spec {
+  const ivory = 0xd9ddd0;
+  const green = 0x537852;
+  part(g, GUNMETAL, 1.7, 4.5, 2, 0, -1.5, 0.8, -0.2);
+  part(g, green, 4.2, 3.8, 17, 0, 1.9, -4.5);
+  part(g, ivory, 4.6, 1.2, 15, 0, 4, -4.5);
+  for (const side of [-1, 1]) {
+    const pod = new THREE.Mesh(new THREE.CapsuleGeometry(1.6, 15, 4, 10), mat(ivory));
+    pod.rotation.x = Math.PI / 2;
+    pod.position.set(side * 3.2, 2, -6);
+    g.add(pod);
+    part(g, green, 0.35, 2, 11, side * 4.7, 2, -6);
+    const emitter = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.4, 12), new THREE.MeshBasicMaterial({ color: 0x9bff69 }));
+    emitter.rotation.x = Math.PI / 2;
+    emitter.position.set(side * 3.2, 2, -15.3);
+    g.add(emitter);
+  }
+  part(g, BLACK, 3, 0.4, 3.8, 0, 4.8, 0.7, 0.3);
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.12, 2.8), new THREE.MeshBasicMaterial({ color: 0x66d960 }));
+  screen.position.set(0, 5.1, 0.7);
+  screen.rotation.x = 0.3;
+  g.add(screen);
+  part(g, 0xc54428, 0.7, 0.5, 0.7, 1.1, 4.9, 2.7);
+  part(g, ivory, 2.7, 2.5, 5, 0, 0.8, 6.5);
+  return { muzzle: new THREE.Vector3(0, 2, -16) };
+}
+
 export function buildWeaponModel(id: WeaponId): { group: THREE.Group; muzzle: THREE.Vector3 } {
   const g = new THREE.Group();
   let spec: Spec;
   switch (id) {
+    case 'silencer':
+      spec = silencer(g);
+      break;
     case 'knife':
       spec = knife(g);
       break;

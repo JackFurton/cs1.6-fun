@@ -184,3 +184,20 @@ canvas { display: block; }
 .menu code { background: #111; padding: 1px 5px; color: rgb(255,180,40); }
 .connecting { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: #ddd; font-size: 20px; line-height: 1.6; }
 .connecting a { color: rgb(255,180,40); }
+
+.nuke-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 12; }
+.nuke-overlay[hidden], .nuke-banner[hidden] { display: none; }
+.nuke-flash { position: absolute; inset: 0; background: #fff4d9; opacity: 0; }
+.nuke-banner { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 18px; box-sizing: border-box; width: min(670px, calc(100% - 32px)); padding: 18px 22px; color: #ffdec5; background: linear-gradient(100deg, rgba(49,12,5,0.95), rgba(25,12,7,0.88)); border: 1px solid #b94b29; border-top: 3px solid #ff713c; box-shadow: 0 8px 40px #0008, inset 0 0 30px #ff551010; }
+.nuke-symbol { color: #ffb257; font-size: 48px; line-height: 1; }
+.nuke-copy { display: flex; flex: 1; flex-direction: column; gap: 6px; }
+.nuke-eyebrow { color: #ce9273; font: 10px monospace; letter-spacing: 2px; text-transform: uppercase; }
+.nuke-copy strong { color: #fff1d4; font-size: clamp(15px, 2.2vw, 23px); letter-spacing: 1px; text-transform: uppercase; }
+.nuke-subtitle { color: #d0b39d; font-size: 12px; }
+.nuke-countdown { color: #ffbd72; font: bold 26px monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nuke-weapon { position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); padding: 12px 18px; background: #132319e8; border: 1px solid #6e9b68; color: #c9efb5; text-align: center; }
+.nuke-weapon b, .nuke-weapon span, .nuke-weapon small { display: block; }
+.nuke-weapon b { font: 10px monospace; letter-spacing: 2px; color: #91b787; }
+.nuke-weapon span { margin: 7px 0; font-size: 14px; }
+.nuke-weapon small { font-size: 11px; color: #aab4a7; }
+@media (max-width: 600px) { .nuke-banner { top: 50px; gap: 10px; padding: 12px; } .nuke-symbol { font-size: 32px; } .nuke-countdown { font-size: 20px; } }

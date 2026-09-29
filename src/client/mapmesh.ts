@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Brush, Plane } from '../engine/brush';
 import { Vec3, cross } from '../engine/vec';
+import { NUKE_WAVE_SPEED } from '../game/nuke';
 import { layoutLightmap, type LightmapLayout } from './lightbake';
 import { getTexture, textureScale } from './textures';
 
@@ -92,13 +93,26 @@ function fitUV(v: Vec3, n: Vec3, b: Brush): [number, number] {
 
 const MAP_VERT = /* glsl */ `
   attribute vec2 uv1;
+  attribute vec3 ruin;
+  uniform vec4 blast;
   varying vec2 vUv;
   varying vec2 vUv1;
+  varying float vBurn;
+  varying float vHeat;
   #include <fog_pars_vertex>
   void main() {
     vUv = uv;
     vUv1 = uv1;
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vec3 p = position;
+    vBurn = 0.0;
+    vHeat = 0.0;
+    if (blast.w >= 0.0) {
+      float arrived = blast.w - distance(position.xz, blast.xz) / ${NUKE_WAVE_SPEED.toFixed(1)};
+      vBurn = smoothstep(0.0, 0.8, arrived);
+      vHeat = step(0.0, arrived) * exp(-max(0.0, arrived) * 1.8);
+      p = mix(position, ruin, vBurn);
+    }
+    vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
   }
@@ -110,12 +124,18 @@ const MAP_FRAG = /* glsl */ `
   uniform float opacity;
   varying vec2 vUv;
   varying vec2 vUv1;
+  varying float vBurn;
+  varying float vHeat;
   #include <fog_pars_fragment>
   void main() {
     vec4 albedo = texture2D(map, vUv);
     // Lightmap stores sqrt(light / 2); square it back out.
     vec3 l = texture2D(lightMap, vUv1).rgb;
-    gl_FragColor = vec4(albedo.rgb * l * l * 2.0, opacity);
+    vec3 lit = albedo.rgb * l * l * 2.0;
+    float grey = dot(lit, vec3(0.3, 0.59, 0.11));
+    lit = mix(lit, grey * vec3(0.23, 0.19, 0.16), vBurn);
+    lit += vec3(1.6, 0.55, 0.08) * vHeat;
+    gl_FragColor = vec4(lit, opacity);
     #include <colorspace_fragment>
     #include <fog_fragment>
   }
@@ -126,6 +146,8 @@ export interface MapMeshes {
   layout: LightmapLayout;
   /** Swap in a baked lightmap once it's ready. */
   setLightmap(tex: THREE.Texture): void;
+  /** Visual destruction after a map-wide blast; spawning restores the normal collision geometry. */
+  setBlast(pos: Vec3 | null, age: number): void;
 }
 
 /**
@@ -158,12 +180,14 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: numb
   const byTex = collectFaces(brushes);
   const layout = layoutLightmap([...byTex.values()].flat(), luxel);
   const lightMap = { value: flat };
+  const blast = { value: new THREE.Vector4(0, 0, 0, -1) };
   const fog = THREE.UniformsUtils.clone(THREE.UniformsLib.fog);
 
   for (const [tex, faces] of byTex) {
     const pos: number[] = [];
     const uv: number[] = [];
     const uv1: number[] = [];
+    const ruin: number[] = [];
     const scale = textureScale(tex);
     for (const f of faces) {
       const uvs = f.verts.map((v) => (f.brush.fit ? fitUV(v, f.normal, f.brush) : faceUV(v, f.normal, scale)));
@@ -171,6 +195,16 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: numb
         for (const k of [0, i, i + 1]) {
           const v = f.verts[k];
           pos.push(v.x, v.y, v.z);
+          const b = f.brush;
+          const height = b.max.y - b.min.y;
+          const collapse = b.max.y > 24;
+          // Each wall or prop becomes a low pile. Flat ground stays in place and gets scorched.
+          const seed = Math.sin(b.min.x * 0.017 + b.min.z * 0.031 + b.max.y) * 0.5 + 0.5;
+          ruin.push(
+            v.x + (collapse ? (seed - 0.5) * 70 : 0),
+            collapse ? Math.min(b.min.y, 12) + (v.y - b.min.y) * Math.min(0.14, (12 + seed * 20) / Math.max(1, height)) : v.y,
+            v.z + (collapse ? Math.cos(b.min.x + b.min.z) * 35 : 0),
+          );
           uv.push(uvs[k][0], uvs[k][1]);
           uv1.push(...layout.uv(f, v));
         }
@@ -180,10 +214,11 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: numb
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setAttribute('uv1', new THREE.Float32BufferAttribute(uv1, 2));
+    geo.setAttribute('ruin', new THREE.Float32BufferAttribute(ruin, 3));
     geo.computeBoundingSphere();
     const glass = tex === 'glass';
     const mat = new THREE.ShaderMaterial({
-      uniforms: { ...fog, map: { value: getTexture(tex, anisotropy) }, lightMap, opacity: { value: glass ? 0.35 : 1 } },
+      uniforms: { ...fog, map: { value: getTexture(tex, anisotropy) }, lightMap, blast, opacity: { value: glass ? 0.35 : 1 } },
       vertexShader: MAP_VERT,
       fragmentShader: MAP_FRAG,
       fog: true,
@@ -199,6 +234,9 @@ export function buildMapMeshes(brushes: Brush[], anisotropy: number, luxel: numb
     layout,
     setLightmap(tex) {
       lightMap.value = tex;
+    },
+    setBlast(pos, age) {
+      blast.value.set(pos?.x ?? 0, pos?.y ?? 0, pos?.z ?? 0, pos ? age : -1);
     },
   };
 }

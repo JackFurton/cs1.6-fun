@@ -200,6 +200,8 @@ export class NetClient {
 
     if (s.rules && this.mode instanceof BombDefusal) applyRules(this.mode, s.rules, (id) => this.byId.get(id));
 
+    this.game.nukes.strike = s.nuke ? { ...s.nuke, pos: new Vec3(...s.nuke.pos) } : null;
+
     // World objects are just drawn, so rebuild them from the snapshot.
     this.game.dropped.length = 0;
     for (const d of s.dropped) {

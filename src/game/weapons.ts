@@ -30,7 +30,8 @@ export type WeaponId =
   | 'hegrenade'
   | 'flashbang'
   | 'smokegrenade'
-  | 'c4';
+  | 'c4'
+  | 'silencer';
 
 export type Slot = 'primary' | 'secondary' | 'knife' | 'grenade' | 'c4';
 
@@ -88,7 +89,7 @@ export interface WeaponDef {
   scopedSpeed?: number;
   /** Extra spread when a sniper fires unscoped. */
   unscopedSpread?: number;
-  alt?: 'silencer' | 'burst' | 'zoom';
+  alt?: 'silencer' | 'burst' | 'zoom' | 'target';
   /** Loudness radius for bots and positional audio. */
   loudness: number;
   range: number;
@@ -101,6 +102,13 @@ const PISTOL = { slot: 'secondary' as const, auto: false, deploy: 0.75, speed: 2
 const RIFLE = { slot: 'primary' as const, auto: true, deploy: 1.0, range: 8192, loudness: 2000 };
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
+  silencer: {
+    id: 'silencer', name: 'Silencer · Nuke', slot: 'primary', price: 800,
+    damage: 0, rangeModifier: 1, penetration: 0, armorPen: 1,
+    cycle: 1, auto: false, clip: 1, reserve: 0, reload: 0, deploy: 0.8, speed: 230,
+    spread: sp([0, 0], [0, 0], [0, 0], [0, 0]), accuracy: { kind: 'fixed' },
+    alt: 'target', loudness: 0, range: 0,
+  },
   knife: {
     id: 'knife',
     name: 'Knife',
