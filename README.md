@@ -39,6 +39,18 @@ It prints addresses like `http://192.168.1.20:27015/?connect`. These private add
 
 The Join menu accepts HTTP, HTTPS, and WebSocket links. Connections that do not complete the game handshake show an error after ten seconds, with a link back to the menu.
 
+### Friends on another network
+
+```sh
+npm run share -- --map de_dust2 --mode dm
+```
+
+This builds the game, starts the server, and prints a **FRIEND LINK** such as `https://example.trycloudflare.com/?connect`. Send that link to your friend; keep the terminal open while you play. The helper downloads the official `cloudflared` tool into `.host-tools/` on first use and reuses it afterward. You can play through the **YOUR LOCAL LINK** shown alongside it. Ctrl+C stops both the server and tunnel.
+
+The [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/) uses a temporary address that changes when restarted. It supports this game's [WebSocket connection](https://developers.cloudflare.com/cloudflare-one/faq/cloudflare-tunnels-faq/). For direct hosting, forward TCP port 27015 to your hosting computer and share your public IP instead. Full HTTP/HTTPS links also work in the Join menu; unreachable connections show an error after ten seconds.
+
+After building once, `npm run share:built -- --map de_dust2 --mode dm` reuses the existing build. Set `CLOUDFLARED` to use a specific installed executable.
+
 The server is authoritative at 100 ticks per second and sends 30 snapshots a second. Your own movement is predicted and replayed, and other players are drawn 100ms behind. There's no lag compensation yet, so on high ping you'll need to lead moving targets.
 
 ## Real 1.6 sounds
