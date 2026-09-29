@@ -12,6 +12,8 @@ export class Deathmatch implements GameMode {
   constructor(private g: Game) {}
 
   start(): void {
+    this.respawnAt.clear();
+    this.g.nukes.strike = null;
     this.g.players.forEach((p, i) => {
       p.money = 16000;
       this.g.spawn(p, i);
@@ -32,6 +34,10 @@ export class Deathmatch implements GameMode {
 
   tick(): void {
     for (const [p, t] of this.respawnAt) {
+      if (!this.g.players.includes(p)) {
+        this.respawnAt.delete(p);
+        continue;
+      }
       if (this.g.time < t) continue;
       this.respawnAt.delete(p);
       const spawns = this.g.map.spawns[p.team];
@@ -51,7 +57,9 @@ export class Deathmatch implements GameMode {
       return null;
     }
     if (item === 'defuser' || item === 'primammo' || item === 'secammo') return null;
-    if (WEAPONS[item].slot === 'grenade') return 'No grenades in deathmatch';
+    const def = WEAPONS[item];
+    if (!def) return 'That weapon is unavailable';
+    if (def.slot === 'grenade') return 'No grenades in deathmatch';
     this.g.equip(p, item);
     return null;
   }

@@ -53,6 +53,20 @@ After building once, `npm run share:built -- --map de_dust2 --mode dm` reuses th
 
 The server is authoritative at 100 ticks per second and sends 30 snapshots a second. Your own movement is predicted and replayed, and other players are drawn 100ms behind. There's no lag compensation yet, so on high ping you'll need to lead moving targets.
 
+## Silencer nuclear launcher
+
+Buy **Silencer · Nuke** in the **Heavy** column for **$800** (`B`, then `9`). It replaces your primary weapon and carries one strategic missile. Both teams can use it.
+
+- **Mouse2:** select bombsite A or B. Maps without bombsites target the center of the arena.
+- **Mouse1:** commit the launch. Everyone hears **“Strategic launch detected.”**
+- **10 seconds later:** the missile hits, wipes out every player through cover and armor, and sends a shockwave through the map. Buildings collapse into scorched rubble under a mushroom cloud.
+- The launching team wins the round, with the normal five-second round transition. Deathmatch keeps its normal two-second respawns. The map restores when players spawn.
+- The blast plays in the world with your normal camera, HUD, and spectator controls. The launch audio is the voice alert and incoming missile rush.
+
+Once launched, the strike cannot be canceled by killing its operator or defusing C4. Only one strike can be in flight at a time. Bots do not buy the launcher.
+
+To try it immediately, open `/?map=de_dust2&team=CT&give=silencer`. The launcher model takes its ivory and green styling from Supreme Commander's Aeon Silencer. The short alert recording is credited in [audio attribution](public/audio/ATTRIBUTION.md).
+
 ## Real 1.6 sounds
 
 The game synthesizes every sound, but if you own Counter-Strike 1.6 you can use its originals:

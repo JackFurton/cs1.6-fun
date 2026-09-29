@@ -36,6 +36,7 @@ import { SmokeRenderer } from './smokes';
 import { loadSettings, saveSettings } from './settings';
 import { ViewModel } from './viewmodel';
 import { buildWeaponModel } from './weaponmodel';
+import { NukeStrike } from './nuke';
 
 const SLOT_ORDER: Slot[] = ['primary', 'secondary', 'knife', 'grenade', 'c4'];
 const SLOT_KEYS: Partial<Record<Action, Slot>> = { slot1: 'primary', slot2: 'secondary', slot3: 'knife', slot4: 'grenade', slot5: 'c4' };
@@ -56,6 +57,7 @@ export class App {
   readonly radioMenu: RadioMenuUI;
   readonly viewmodel = new ViewModel();
   readonly effects: Effects;
+  readonly nuke: NukeStrike;
   readonly audio = new Audio();
   readonly announcer = new Announcer(this.audio);
   /** Local player's recent kills, for multi-kill callouts. */
@@ -120,6 +122,7 @@ export class App {
     this.renderer.resize();
     this.input = new Input(this.renderer.gl.domElement);
     this.hud = new Hud(root, this.settings);
+    this.nuke = new NukeStrike(this.renderer, root, map);
     this.scoreboard = new Scoreboard(root);
     this.radar = new Radar(root, map);
     this.radioMenu = new RadioMenuUI(root);
@@ -613,6 +616,7 @@ export class App {
         break;
       case 'round':
         if (e.phase === 'freeze') {
+          this.audio.stopNukeWarning();
           if (this.purchases.length) this.lastPurchases = this.purchases;
           this.purchases = [];
           this.yaw = this.local.yaw;
@@ -645,6 +649,13 @@ export class App {
         this.shake = Math.max(this.shake, Math.max(0, 1 - d / 3000) * (e.big ? 1.2 : 0.6));
         break;
       }
+      case 'nukeLaunch':
+        this.announcer.say('strategic', 0);
+        this.audio.nukeLaunch(Math.max(0, e.impactAt - this.game.time));
+        break;
+      case 'nukeImpact':
+        this.audio.nukeImpact();
+        break;
       case 'sound':
         if (e.name === 'bounce') {
           if (!this.audio.sampleFor('bounce', e.pos)) this.audio.click(e.pos, 900, 0.25);
@@ -692,6 +703,10 @@ export class App {
     let firstPerson = true;
     let spectated: Player | null = null;
     this.input.wheelZoomOnly = !p.alive;
+    this.nuke.update(this.game.nukes.strike, this.game.time);
+    const nuclear = this.game.nukes.strike;
+    if (nuclear?.exploded) this.renderer.setNuclearBlast(nuclear.pos, this.game.time - nuclear.impactAt);
+    else this.renderer.setNuclearBlast(null);
     if (p.alive || this.game.time - this.deathTime < 2) {
       const vh = lerp(p.prevViewHeight, p.move.viewHeight);
       const bob = p.alive ? this.bob.update(dt, p.move.velocity.length2d()) : 0;
@@ -747,6 +762,8 @@ export class App {
     }
     this.hud.update(p, spreadPx, scoped, dt);
     this.hud.setFlash(p, this.game.time);
+    const targeting = p.alive && p.weapon?.def.id === 'silencer' && !this.game.nukes.strike;
+    this.hud.setNukeTarget(targeting ? this.game.nukes.target(p).site : null, (p.weapon?.clip ?? 0) > 0);
     this.buyMenu.update();
     this.updateRoundHud();
     const d = this.defusal;

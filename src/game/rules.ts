@@ -49,7 +49,7 @@ const BOMB_DAMAGE = 500;
 const ROUND_END_DELAY = 5;
 
 export type Phase = 'freeze' | 'live' | 'over' | 'matchover';
-export type RoundEnd = 'elimination' | 'time' | 'bomb' | 'defuse';
+export type RoundEnd = 'elimination' | 'time' | 'bomb' | 'defuse' | 'nuke';
 
 export interface Bomb {
   pos: Vec3;
@@ -117,6 +117,17 @@ export class BombDefusal implements GameMode {
     return this.phase !== 'freeze';
   }
 
+  canLaunchNuke(): boolean {
+    return this.phase === 'live';
+  }
+
+  onNuke(team: Team, owner: Player | null): void {
+    this.roundPlanter = owner;
+    this.endRound(team, 'nuke');
+    this.bomb = null;
+    this.planter = null;
+  }
+
   /** 1.6 armor prices: helmet alone is $350 on full kevlar; with a helmet, refilling kevlar is $650. */
   armorCost(p: Player, item: 'vest' | 'vesthelm'): number | null {
     if (item === 'vest') return p.armor >= 100 ? null : 650;
@@ -136,6 +147,7 @@ export class BombDefusal implements GameMode {
     this.round++;
     if (this.cfg.halftime && this.round === this.cfg.halftime + 1) this.swapSides();
     this.bomb = null;
+    g.nukes.strike = null;
     this.planter = null;
     this.roundPlanter = this.roundDefuser = null;
     for (const p of g.players) p.roundKills = 0;
@@ -354,6 +366,7 @@ export class BombDefusal implements GameMode {
   endRound(winner: Team, reason: RoundEnd): void {
     const g = this.g;
     if (this.phase !== 'live') return;
+    if (g.nukes.strike && reason !== 'nuke') return;
     const loser: Team = winner === 'T' ? 'CT' : 'T';
     this.phase = 'over';
     this.phaseEnd = g.time + ROUND_END_DELAY;
@@ -361,7 +374,7 @@ export class BombDefusal implements GameMode {
     this.lastWinner = winner;
     this.lastReason = reason;
     // MVP: the defuser or planter when that won it, otherwise the winner with the most kills.
-    let mvp: Player | null = reason === 'defuse' ? this.roundDefuser : reason === 'bomb' ? this.roundPlanter : null;
+    let mvp: Player | null = reason === 'defuse' ? this.roundDefuser : reason === 'bomb' || reason === 'nuke' ? this.roundPlanter : null;
     if (!mvp) {
       const winners = g.players.filter((p) => p.team === winner && p.roundKills > 0);
       mvp = winners.sort((a, b) => b.roundKills - a.roundKills)[0] ?? null;
@@ -371,7 +384,7 @@ export class BombDefusal implements GameMode {
     this.lossStreak[winner] = 0;
     const lossBonus = Math.min(ECON.lossMax, ECON.lossBase + ECON.lossStep * this.lossStreak[loser]);
     this.lossStreak[loser]++;
-    const winMoney = reason === 'bomb' ? ECON.winBomb : reason === 'defuse' ? ECON.winDefuse : reason === 'time' ? ECON.winTime : ECON.winElimination;
+    const winMoney = reason === 'bomb' || reason === 'nuke' ? ECON.winBomb : reason === 'defuse' ? ECON.winDefuse : reason === 'time' ? ECON.winTime : ECON.winElimination;
     for (const p of g.players) {
       if (p.team === winner) this.addMoney(p, winMoney);
       else if (reason === 'time' && p.team === 'T' && p.alive) {
@@ -411,6 +424,7 @@ export class BombDefusal implements GameMode {
       }
     }
     const def = WEAPONS[item];
+    if (!def) return 'That weapon is unavailable';
     if (def.team && def.team !== p.team) return 'Your team cannot buy that';
     if (def.slot === 'grenade') {
       const max = item === 'flashbang' ? 2 : 1;

@@ -8,6 +8,7 @@ import { BombDefusal } from '../game/rules';
 import type { UserCmd } from '../game/usercmd';
 import { WEAPONS, type Slot, type WeaponId } from '../game/weapons';
 import type { Team } from '../maps/types';
+import type { NuclearStrike } from '../game/nuke';
 
 export const DEFAULT_PORT = 27015;
 export const SNAPSHOT_HZ = 30;
@@ -51,6 +52,7 @@ export interface WeaponSnap {
   burst: boolean;
   shotsFired: number;
   lastFire: number;
+  targetSite: number;
 }
 
 export interface PlayerSnap {
@@ -102,13 +104,14 @@ export interface RulesSnap {
   plantEnd: number;
   planter: number | null;
   bomb: { pos: [number, number, number]; explodeAt: number; site: string; defuser: number | null; defuseEnd: number; exploded: boolean; defused: boolean } | null;
-  history: { winner: Team; reason: 'elimination' | 'time' | 'bomb' | 'defuse'; mvp: number | null }[];
+  history: { winner: Team; reason: 'elimination' | 'time' | 'bomb' | 'defuse' | 'nuke'; mvp: number | null }[];
 }
 
 export interface Snapshot {
   time: number;
   players: PlayerSnap[];
   rules: RulesSnap | null;
+  nuke: (Omit<NuclearStrike, 'pos'> & { pos: [number, number, number] }) | null;
   dropped: { id: WeaponId; pos: [number, number, number]; yaw: number }[];
   nades: { id: WeaponId; pos: [number, number, number]; stopped: boolean }[];
   smokes: { pos: [number, number, number]; start: number; until: number }[];
@@ -118,13 +121,14 @@ const v3 = (v: Vec3): [number, number, number] => [round(v.x), round(v.y), round
 const round = (n: number) => Math.round(n * 100) / 100;
 
 function weaponSnap(w: WeaponState): WeaponSnap {
-  return { id: w.def.id, clip: w.clip, reserve: w.reserve, zoom: w.zoom, resumeZoom: w.resumeZoom, reloading: w.reloading, reloadEnd: w.reloadEnd, silenced: w.silenced, burst: w.burst, shotsFired: w.shotsFired, lastFire: w.lastFire };
+  return { id: w.def.id, clip: w.clip, reserve: w.reserve, zoom: w.zoom, resumeZoom: w.resumeZoom, reloading: w.reloading, reloadEnd: w.reloadEnd, silenced: w.silenced, burst: w.burst, shotsFired: w.shotsFired, lastFire: w.lastFire, targetSite: w.targetSite };
 }
 
 export function snapshot(g: Game, acks: Map<Player, number>): Snapshot {
   const rules = g.rules instanceof BombDefusal ? g.rules : null;
   return {
     time: g.time,
+    nuke: g.nukes.strike ? { ...g.nukes.strike, pos: v3(g.nukes.strike.pos) } : null,
     players: g.players.map((p) => ({
       id: p.id,
       name: p.name,
@@ -220,6 +224,7 @@ export function applyPlayerState(p: Player, s: PlayerSnap): void {
     w.burst = ws.burst;
     w.shotsFired = ws.shotsFired;
     w.lastFire = ws.lastFire;
+    w.targetSite = ws.targetSite;
     next[slot] = w;
   }
   p.weapons = next;

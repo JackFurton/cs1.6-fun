@@ -25,6 +25,8 @@ export class WeaponState {
   reloading = false;
   /** Grenade pin pulled; it's thrown when the trigger is released. */
   pinPulled = false;
+  /** Bombsite selected by the Silencer's secondary fire. */
+  targetSite = 0;
 
   constructor(readonly def: WeaponDef) {
     this.clip = def.clip;

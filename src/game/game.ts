@@ -9,6 +9,7 @@ import { GRENADE_IDS, GrenadeSystem, isGrenade } from './grenades';
 import { rayHitBody, type HitGroup } from './hitbox';
 import { Player, WeaponState } from './player';
 import { WEAPONS, type Slot, type WeaponId } from './weapons';
+import { NukeSystem } from './nuke';
 
 export const TICK_RATE = 100;
 export const TICK_DT = 1 / TICK_RATE;
@@ -31,6 +32,8 @@ export interface Rules {
   canDrop?(p: Player): boolean;
   canAttack?(p: Player): boolean;
   tick?(): void;
+  canLaunchNuke?(): boolean;
+  onNuke?(team: Team, owner: Player | null): void;
 }
 
 const DROP_MINS = new Vec3(-6, 0, -6);
@@ -50,11 +53,13 @@ export class Game {
   private stepTimers = new Map<Player, number>();
   private tr = new Trace();
   readonly grenades: GrenadeSystem;
+  readonly nukes: NukeSystem;
 
   constructor(readonly map: MapData) {
     this.world = new CollisionWorld(map.brushes);
     this.mover = new PlayerMover(this.world);
     this.grenades = new GrenadeSystem(this);
+    this.nukes = new NukeSystem(this);
   }
 
   emit(e: GameEvent): void {
@@ -88,6 +93,8 @@ export class Game {
   }
 
   spawn(p: Player, index: number): void {
+    // Restore the map before play resumes after a strike.
+    if (this.nukes.strike?.exploded) this.nukes.strike = null;
     const spawns = this.map.spawns[p.team];
     const s = spawns[index % spawns.length];
     p.move.origin.copy(s.pos);
@@ -137,6 +144,7 @@ export class Game {
     }
     this.updateDropped();
     this.grenades.update(TICK_DT);
+    this.nukes.tick();
     this.rules.tick?.();
     this.time += TICK_DT;
   }

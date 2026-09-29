@@ -202,6 +202,13 @@ function altFire(g: Game, p: Player, w: WeaponState): void {
   }
   if (g.time < p.nextAttack - 0.001 && def.alt !== 'zoom') return;
   switch (def.alt) {
+    case 'target':
+      if (g.nukes.strike) return;
+      w.targetSite = (w.targetSite + 1) % Math.max(1, g.map.bombsites.length);
+      p.nextAttack = g.time + 0.2;
+      g.emit({ type: 'zoom', player: p });
+      break;
+
     case 'zoom':
       if (w.reloading) return;
       // Mid-bolt, Mouse2 picks the scope level you come back to rather than fighting the auto-rezoom.
@@ -228,6 +235,10 @@ function altFire(g: Game, p: Player, w: WeaponState): void {
 
 function fire(g: Game, p: Player, w: WeaponState): void {
   const def = w.def;
+  if (def.id === 'silencer') {
+    g.nukes.launch(p);
+    return;
+  }
   const spread = currentSpread(p, w);
 
   if (def.accuracy.kind === 'time' && w.lastFire > 0) {

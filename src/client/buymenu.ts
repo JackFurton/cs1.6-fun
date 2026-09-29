@@ -40,13 +40,14 @@ function tree(team: Team): Category[] {
         ...(T ? [] : [{ label: 'Defusal Kit', item: 'defuser' as const, price: 200 }]),
       ],
     },
+    { label: 'Strategic', items: [w('silencer')] },
   ];
 }
 
 // Columns shown on screen; each is a list of [category index] from the tree.
 const COLUMNS: { title: string; cats: number[] }[] = [
   { title: 'Pistols', cats: [0] },
-  { title: 'Heavy', cats: [1, 4] },
+  { title: 'Heavy', cats: [1, 4, 8] },
   { title: 'SMGs', cats: [2] },
   { title: 'Rifles', cats: [3] },
   { title: 'Gear', cats: [7, 5, 6] },
