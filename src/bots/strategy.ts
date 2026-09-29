@@ -11,6 +11,16 @@ export interface RoundNote {
   hit: string | null;
 }
 
+/** Fisher-Yates, so a seeded game shuffles the same way on every JS engine (sort with a random comparator doesn't). */
+export function shuffle<T>(list: T[], rand: () => number): T[] {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 type Weights<K extends string> = Partial<Record<K, number>>;
 
 function weighted<K extends string>(w: Weights<K>, rand: () => number): K {
@@ -67,7 +77,7 @@ export function ctSetup(names: string[], cts: number, history: RoundNote[], rand
   const hot = streak(3) ?? streak(2);
   const chance = streak(3) ? 0.6 : hot ? 0.3 : 0;
   const stacked = names.length > 1 && cts >= 3 && (rand() < chance || rand() < 0.08) ? (hot ?? names[Math.floor(rand() * names.length)]) : null;
-  const order = [...names].sort(() => rand() - 0.5);
+  const order = shuffle(names, rand);
   if (stacked) {
     const others = order.filter((n) => n !== stacked);
     // Everyone but one (or two, on a five-stack of three sites) plays the stacked site.
