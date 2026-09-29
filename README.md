@@ -51,6 +51,23 @@ The [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/n
 
 After building once, `npm run share:built -- --map de_dust2 --mode dm` reuses the existing build. Set `CLOUDFLARED` to use a specific installed executable.
 
+### 2v2 aim tournament
+
+```sh
+npm run server -- --mode tournament --map aim_arena
+```
+
+Sixteen players form eight duos in a single-elimination bracket: quarterfinals, semifinals, then the final. Each matchup is **best of three elimination rounds** (first to two wins). One 2v2 match plays at a time; waiting and eliminated teams spectate.
+
+1. Join the same server, enter your names, and choose the **same Duo number** in the lobby.
+2. Invite everyone before clicking **Ready up**. Bots fill unused seats. The tournament starts eight seconds after every connected player is ready; changing duos or adding a player cancels readiness.
+3. Everyone gets an AK-47, Desert Eagle, helmet and armor each round. Sides alternate. No buying or bombs in tournament mode.
+4. Hold **Tab** for the bracket. Each round lasts up to 90 seconds; more survivors win on time, then combined health. Exact ties replay the round.
+
+Duos lock when play starts. Disconnects leave a bot in that seat, spawning next round; new connections can join the next lobby. The champion screen has **New tournament — keep duos**. The host can type `tournament start` to skip readiness or `tournament reset` to reopen the lobby at any time.
+
+For solo practice, select **New Game → 2v2 Aim Tournament**. To share a tournament across networks, use `npm run share -- --mode tournament --map aim_arena`.
+
 The server is authoritative at 100 ticks per second and sends 30 snapshots a second. Your own movement is predicted and replayed, and other players are drawn 100ms behind. There's no lag compensation yet, so on high ping you'll need to lead moving targets.
 
 ## Silencer nuclear launcher

@@ -5,7 +5,7 @@ export type TeamChoice = 'T' | 'CT' | 'auto' | 'spec';
 
 export interface NewGameOptions {
   map: string;
-  mode: 'defuse' | 'dm';
+  mode: 'defuse' | 'dm' | 'tournament';
   /** 'choose' shows the team select screen when the page loads. */
   team: TeamChoice | 'choose';
   model: number;
@@ -18,8 +18,8 @@ export function readNewGame(params: URLSearchParams, maps: string[]): NewGameOpt
   const pick = <T extends string>(v: string | null, allowed: readonly T[], d: T): T => (allowed.includes(v as T) ? (v as T) : d);
   const num = (v: string | null, d: number, max = 9) => Math.max(0, Math.min(max, Number.isFinite(Number(v)) && v !== null ? Number(v) : d));
   return {
-    map: pick(params.get('map'), maps, maps[0]),
-    mode: pick(params.get('mode'), ['defuse', 'dm'] as const, 'defuse'),
+    map: pick(params.get('map'), maps, params.get('mode') === 'tournament' ? 'aim_arena' : maps[0]),
+    mode: pick(params.get('mode'), ['defuse', 'dm', 'tournament'] as const, 'defuse'),
     team: pick(params.get('team'), ['T', 'CT', 'auto', 'spec', 'choose'] as const, 'choose'),
     model: num(params.get('model'), -1, 3),
     teammates: num(params.get('teammates'), 4),
@@ -90,6 +90,7 @@ export class Menu {
     // Number keys pick teams and models, like 1.6's team menu.
     addEventListener('keydown', (e) => {
       if (!this.screen) return;
+      if (this.screen === 'team' && this.game.mode === 'tournament') return;
       const m = /^Digit(\d)$/.exec(e.code);
       if (e.code === 'Escape' && !this.binding && (this.screen === 'newgame' || this.screen === 'options')) this.show('main');
       if (e.code === 'Escape' && !this.binding && this.screen === 'keys') this.show('options');
@@ -106,6 +107,14 @@ export class Menu {
 
   get visible(): boolean {
     return this.screen !== null;
+  }
+
+  notice(text: string): void {
+    const note = document.createElement('p');
+    note.className = 'menu-notice';
+    note.setAttribute('role', 'alert');
+    note.textContent = text;
+    this.box.prepend(note);
   }
 
   show(screen: Screen | null | boolean): void {
@@ -148,6 +157,7 @@ export class Menu {
         break;
       case 'mode':
         this.draft.mode = val as NewGameOptions['mode'];
+        if (val === 'tournament') this.draft.map = 'aim_arena';
         this.render();
         break;
       case 'diff':
@@ -180,6 +190,13 @@ export class Menu {
         location.search = new URLSearchParams({ connect: addr }).toString();
         break;
       }
+      case 'tournamentjoin': {
+        const name = (this.box.querySelector('[name=pname]') as HTMLInputElement).value.trim();
+        this.settings.name = name.slice(0, 24) || 'Player';
+        this.onChange(this.settings);
+        this.onJoin('auto', -1);
+        break;
+      }
       case 'resetbinds':
         this.settings.binds = structuredClone(DEFAULT_BINDS);
         this.onChange(this.settings);
@@ -209,7 +226,7 @@ export class Menu {
 
   private renderMain(): void {
     const g = this.game;
-    const where = `${g.map} · ${g.mode === 'dm' ? 'Deathmatch' : 'Bomb Defusal'}`;
+    const where = `${g.map} · ${g.mode === 'tournament' ? '2v2 Aim Tournament' : g.mode === 'dm' ? 'Deathmatch' : 'Bomb Defusal'}`;
     this.box.className = 'menu-box main';
     this.box.innerHTML = `
       <h1>cs1.6-fun</h1>
@@ -217,7 +234,7 @@ export class Menu {
       <button class="big play" data-act="play">${this.started ? 'Resume' : 'Play'}</button>
       <button data-act="screen" data-val="newgame">New Game</button>
       ${this.started ? '' : '<button data-act="screen" data-val="join">Play with Friends</button>'}
-      ${this.started ? '<button data-act="screen" data-val="team">Change Team <kbd>M</kbd></button>' : ''}
+      ${this.started && g.mode !== 'tournament' ? '<button data-act="screen" data-val="team">Change Team <kbd>M</kbd></button>' : ''}
       <button data-act="screen" data-val="options">Options</button>
       <button data-act="fullscreen">Fullscreen <kbd>Alt+Enter</kbd></button>
       <p class="keys">WASD move · Space / wheel down jump · Ctrl duck · Shift walk · Mouse1 fire · Mouse2 alt fire · R reload · B buy (R in menu: rebuy) · 1-5 weapons · Q last weapon · G drop · E defuse · Z/X/C radio (bots obey) · Tab scores · M team · Esc menu</p>`;
@@ -239,13 +256,20 @@ export class Menu {
       <div class="row">${seg('mode', d.mode, [
         ['defuse', 'Bomb Defusal'],
         ['dm', 'Deathmatch'],
+        ['tournament', '2v2 Aim Tournament'],
       ])}</div>
-      <div class="row">${stepper('teammates', 'Bot teammates')}${stepper('enemies', 'Bot enemies')}</div>
+      <div class="row">${d.mode === 'tournament' ? '<p>16 players · 8 duos · best of three. Bots fill empty seats; pick your duo in the lobby.</p>' : stepper('teammates', 'Bot teammates') + stepper('enemies', 'Bot enemies')}</div>
       <div class="row">${seg('diff', d.difficulty, DIFFS)}</div>
       <div class="row end"><button data-act="screen" data-val="main">Back</button><button class="big" data-act="start">Start</button></div>`;
   }
 
   private renderTeam(): void {
+    if (this.game.mode === 'tournament') {
+      this.box.className = 'menu-box';
+      this.box.innerHTML = '<h2>2v2 Aim Tournament</h2><p>Enter your name, then pick the same duo as your friend in the lobby.</p><label>Your name <input name="pname" maxlength="24" autocomplete="off"></label><button class="big" data-act="tournamentjoin">Enter tournament lobby</button><p class="note">16 players · 8 duos · best of three · bots fill empty seats</p>';
+      (this.box.querySelector('[name=pname]') as HTMLInputElement).value = this.settings.name;
+      return;
+    }
     this.box.className = 'menu-box wide';
     this.box.innerHTML = `
       <h2>Select Team</h2>
@@ -307,7 +331,7 @@ export class Menu {
         <label>Your name <input name="pname" type="text" maxlength="24" value="${esc(this.settings.name)}"></label>
         <label>Server address <input name="addr" type="text" placeholder="192.168.1.20" value="${esc(this.settings.lastServer)}"></label>
       </div>
-      <p class="note">To host: run <code>./play.sh host</code> (or <code>./play.sh host de_mirage</code>). It prints the address friends should type here, and they can also just open it in a browser. Port 27015 has to be reachable: same Wi-Fi works as-is; over the internet use Tailscale/ZeroTier or forward the port.</p>
+      <p class="note">For friends on another network, the host runs <code>npm run share</code> and sends the FRIEND LINK printed in the terminal. Paste the full link here, or open it in your browser. A 192.168.x.x address only works on the host’s local network.</p>
       <div class="row end"><button data-act="screen" data-val="main">Back</button><button class="big" data-act="connect">Join</button></div>`;
   }
 

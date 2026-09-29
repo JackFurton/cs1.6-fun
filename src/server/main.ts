@@ -4,6 +4,7 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
+import { createInterface } from 'node:readline';
 import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { Difficulty } from '../bots/skill';
@@ -17,8 +18,9 @@ function arg(name: string, fallback: string): string {
 }
 
 const port = Number(arg('port', String(DEFAULT_PORT)));
-const map = arg('map', 'de_dust2');
-const mode = arg('mode', 'defuse') === 'dm' ? 'dm' : 'defuse';
+const requestedMode = arg('mode', 'defuse');
+const mode = requestedMode === 'tournament' ? 'tournament' : requestedMode === 'dm' ? 'dm' : 'defuse';
+const map = arg('map', mode === 'tournament' ? 'aim_arena' : 'de_dust2');
 const difficulty = arg('difficulty', 'normal') as Difficulty;
 const teamSize = Number(arg('teamsize', '5'));
 const dist = resolve(arg('dist', 'dist'));
@@ -29,6 +31,8 @@ if (!MAPS[map]) {
 }
 
 const room = new Room({ map, mode, difficulty, teamSize });
+const consoleInput = createInterface({ input: process.stdin });
+consoleInput.on('line', (line) => console.log(room.hostCommand(line)));
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.svg': 'image/svg+xml' };
 
@@ -80,4 +84,10 @@ http.listen(port, () => {
     .map((n) => n!.address);
   console.log(`cs1.6-fun server: ${map} (${mode}, ${difficulty} bots) on port ${port}`);
   for (const ip of ['localhost', ...ips]) console.log(`  join at http://${ip}:${port}/?connect`);
+  if (mode === 'tournament') {
+    console.log('Aim tournament: choose the same duo as your friend, then both click Ready. Bots fill empty slots.');
+    console.log('Host console: players | tournament start | tournament reset');
+  } else {
+    console.log('Host console: players');
+  }
 });

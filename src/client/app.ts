@@ -4,6 +4,7 @@ import { Trace } from '../engine/trace';
 import { DEG, Vec3, angleDiff, angleVectors } from '../engine/vec';
 import { currentSpread } from '../game/combat';
 import { Deathmatch } from '../game/deathmatch';
+import { AimTournament, TOURNAMENT_PLAYERS } from '../game/tournament';
 import type { GameEvent } from '../game/events';
 import { DroppedWeapon, Game, TICK_DT } from '../game/game';
 import type { BuyItem, GameMode } from '../game/mode';
@@ -37,6 +38,7 @@ import { loadSettings, saveSettings } from './settings';
 import { ViewModel } from './viewmodel';
 import { buildWeaponModel } from './weaponmodel';
 import { NukeStrike } from './nuke';
+import { TournamentPanel } from './tournament';
 
 const SLOT_ORDER: Slot[] = ['primary', 'secondary', 'knife', 'grenade', 'c4'];
 const SLOT_KEYS: Partial<Record<Action, Slot>> = { slot1: 'primary', slot2: 'secondary', slot3: 'knife', slot4: 'grenade', slot5: 'c4' };
@@ -53,6 +55,7 @@ export class App {
   readonly menu: Menu;
   readonly buyMenu: BuyMenu;
   readonly scoreboard: Scoreboard;
+  readonly tournamentPanel: TournamentPanel;
   readonly radar: Radar;
   readonly radioMenu: RadioMenuUI;
   readonly viewmodel = new ViewModel();
@@ -99,6 +102,7 @@ export class App {
   private specDist = 150;
   private roamPos = new Vec3();
   private tr = new Trace();
+  private lastTournamentPhase = '';
 
   /** Set when playing on a server; the sim then lives there and this client predicts and draws. */
   readonly net: NetClient | null = null;
@@ -136,6 +140,18 @@ export class App {
     this.buyMenu = new BuyMenu(root);
     const cards = mapNames.map((name) => ({ name, image: renderMapImage(MAPS[name](), 256).canvas.toDataURL() }));
     this.menu = new Menu(root, this.settings, this.options, cards);
+    this.tournamentPanel = new TournamentPanel(root);
+    this.tournamentPanel.onAction = (action) => {
+      this.audio.unlock();
+      if (this.net) this.net.send(action);
+      else if (this.tournament) {
+        let error: string | null = null;
+        if (action.action === 'duo') error = this.tournament.chooseDuo(this.local, action.duo);
+        else if (action.action === 'ready') error = this.tournament.setReady(this.local, action.ready);
+        else if (action.action === 'again' && this.tournament.state.phase === 'complete') this.tournament.start();
+        if (error) this.tournamentPanel.message(error);
+      }
+    };
     this.menu.skins = (team) => {
       const imgs = skinPreviews(team);
       return SKINS[team].map((s, i) => ({ name: s.name, blurb: s.blurb, image: imgs[i] ?? '' }));
@@ -148,7 +164,8 @@ export class App {
     root.classList.add('pregame');
     if (remote) {
       // Network game: rules object mirrors the server's for the HUD and buy checks; it never ticks.
-      this.mode = remote.info.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
+      this.mode = remote.info.mode === 'tournament' ? new AimTournament(this.game) : remote.info.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
+      this.game.rules = this.mode;
       this.net = new NetClient(remote.ws, remote.info, this.game, this.mode);
       this.net.onWelcome = (p) => {
         this.local = p;
@@ -163,7 +180,19 @@ export class App {
         }
       };
       this.net.onBuyResult = (err) => {
-        if (err) this.hud.message(err, 1.5);
+        if (err) {
+          this.hud.message(err, 3);
+          this.tournamentPanel.message(err);
+        }
+      };
+      this.net.onFull = (reason) => {
+        this.menu.show('team');
+        this.menu.notice(reason);
+      };
+      this.net.onRespawn = (p) => {
+        this.yaw = p.yaw;
+        this.pitch = p.pitch;
+        this.specTarget = null;
       };
       this.net.onChat = (from, text) => from && this.hud.chat(`${from.name}: ${text}`, from.team);
       this.net.onClose = () => this.hud.error('Disconnected from the server. Reload to rejoin.');
@@ -257,6 +286,7 @@ export class App {
         this.resume.style.display = 'none';
         return;
       }
+      if (this.tournamentInteractive) return;
       // We released the mouse ourselves for the buy menu.
       if (this.buyMenu.isOpen) return;
       if (this.wantTeamMenu) {
@@ -267,7 +297,7 @@ export class App {
       // Esc leaves the page focused; alt-tab doesn't. Only Esc should bring up the full menu,
       // alt-tabbing back just needs a click. Focus settles a moment after the lock is lost.
       setTimeout(() => {
-        if (this.input.locked) return;
+        if (this.input.locked || this.tournamentInteractive) return;
         if (document.hasFocus()) this.menu.show(true);
         else this.resume.style.display = 'flex';
       }, 120);
@@ -295,19 +325,24 @@ export class App {
     const myTeam: Team = choice === 'T' || choice === 'CT' ? choice : Math.random() < 0.5 ? 'T' : 'CT';
     const other: Team = myTeam === 'T' ? 'CT' : 'T';
     // A spectator is a player object that never joins the game, so it's permanently dead.
-    this.local = spectating ? new Player(-1, 'Spectator', myTeam, false) : this.game.addPlayer('Player', myTeam, false);
+    this.local = spectating ? new Player(-1, 'Spectator', myTeam, false) : this.game.addPlayer(this.settings.name, myTeam, false);
     this.local.model = model >= 0 ? model : Math.floor(Math.random() * 4);
     if (spectating) {
       this.local.alive = false;
       this.root.classList.add('spectator');
     }
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    for (let i = 0; i < o.teammates; i++) this.game.addPlayer(names.pop()!, myTeam, true).model = Math.floor(Math.random() * 4);
-    for (let i = 0; i < o.enemies; i++) this.game.addPlayer(names.pop()!, other, true).model = Math.floor(Math.random() * 4);
+    if (o.mode === 'tournament') {
+      while (this.game.players.length < TOURNAMENT_PLAYERS) this.game.addPlayer(names.pop()!, this.game.players.length % 2 ? 'T' : 'CT', true).model = Math.floor(Math.random() * 4);
+    } else {
+      for (let i = 0; i < o.teammates; i++) this.game.addPlayer(names.pop()!, myTeam, true).model = Math.floor(Math.random() * 4);
+      for (let i = 0; i < o.enemies; i++) this.game.addPlayer(names.pop()!, other, true).model = Math.floor(Math.random() * 4);
+    }
 
-    this.mode = o.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
+    this.mode = o.mode === 'tournament' ? new AimTournament(this.game) : o.mode === 'dm' ? new Deathmatch(this.game) : new BombDefusal(this.game);
     this.game.rules = this.mode;
     this.mode.start();
+    if (spectating && this.mode instanceof AimTournament) this.mode.begin();
     this.bots = new BotManager(this.game, this.mode, o.difficulty);
     this.yaw = this.local.yaw;
     this.pitch = 0;
@@ -353,10 +388,12 @@ export class App {
 
   private lockAgain(): void {
     this.resume.style.display = 'none';
+    this.menu.show(false);
+    if (this.tournamentInteractive) return;
     this.input.lock(this.settings.rawInput).catch(() => {});
     // Without a user gesture the browser refuses; fall back to asking for a click.
     setTimeout(() => {
-      if (!this.input.locked && !this.buyMenu.isOpen && this.menu.el.style.display === 'none') this.resume.style.display = 'flex';
+      if (!this.input.locked && !this.buyMenu.isOpen && !this.tournamentInteractive && this.menu.el.style.display === 'none') this.resume.style.display = 'flex';
     }, 300);
   }
 
@@ -390,6 +427,15 @@ export class App {
     return this.mode instanceof BombDefusal ? this.mode : null;
   }
 
+  private get tournament(): AimTournament | null {
+    return this.mode instanceof AimTournament ? this.mode : null;
+  }
+
+  private get tournamentInteractive(): boolean {
+    const phase = this.tournament?.state.phase;
+    return phase === 'lobby' || phase === 'complete';
+  }
+
   private frame(): void {
     try {
       this.step();
@@ -406,6 +452,16 @@ export class App {
     const dt = Math.min(0.25, (now - this.last) / 1000);
     this.last = now;
     if (!this.started) return this.drawOrbit(dt);
+    const phase = this.tournament?.state.phase;
+    if (phase && phase !== this.lastTournamentPhase) {
+      const previous = this.lastTournamentPhase;
+      this.lastTournamentPhase = phase;
+      if (this.tournamentInteractive) {
+        this.menu.show(false);
+        this.resume.style.display = 'none';
+        if (this.input.locked) document.exitPointerLock();
+      } else if (previous === 'lobby') this.lockAgain();
+    }
 
     // Mouse look is applied every render frame, not every tick, so it tracks the monitor's refresh rate.
     const [dx, dy] = this.input.takeMouse();
@@ -457,6 +513,10 @@ export class App {
         if (p.alive) this.radioMenu.toggle(Number(a.slice(5)) - 1);
       }
       else if (a === 'chooseteam') {
+        if (this.tournament) {
+          if (!this.tournamentInteractive) this.hud.message('Teams are locked. Hold Tab to see the bracket.', 3);
+          continue;
+        }
         this.wantTeamMenu = true;
         if (this.input.locked) document.exitPointerLock();
         else this.menu.show('team');
@@ -475,7 +535,7 @@ export class App {
   private toggleBuy(): void {
     if (this.buyMenu.isOpen) return this.buyMenu.close();
     if (!this.mode.canBuy(this.local)) {
-      this.hud.message(this.local.alive ? 'You are not in a buy zone, or buy time is over' : 'You are dead', 1.5);
+      this.hud.message(this.tournament ? 'Aim loadout: AK-47 + Desert Eagle + armor. No buying.' : this.local.alive ? 'You are not in a buy zone, or buy time is over' : 'You are dead', 1.5);
       return;
     }
     this.buyMenu.open(this.local);
@@ -776,7 +836,8 @@ export class App {
     }
     const title = `${this.options.map}  ·  ${this.defusal ? `Round ${this.defusal.round}` : 'Deathmatch'}`;
     const d2 = this.defusal;
-    this.scoreboard.show(this.input.isDown('scores') || d2?.phase === 'matchover', this.game.players, { score: d2?.score ?? null, history: d2?.history ?? [], half: d2?.cfg.halftime ?? 0, matchOver: d2?.phase === 'matchover' }, title, p);
+    this.scoreboard.show(!this.tournament && (this.input.isDown('scores') || d2?.phase === 'matchover'), this.game.players, { score: d2?.score ?? null, history: d2?.history ?? [], half: d2?.cfg.halftime ?? 0, matchOver: d2?.phase === 'matchover' }, title, p);
+    this.tournamentPanel.update(this.tournament, this.game.players, p, this.game.time, this.input.isDown('scores'), this.menu.visible);
   }
 
   /** Places the camera for whichever spectator mode is active; returns the player seen first-person, if any. */
@@ -853,6 +914,12 @@ export class App {
   private updateRoundHud(): void {
     const d = this.defusal;
     const p = this.local;
+    if (this.tournament) {
+      this.hud.setRound(null, null);
+      this.hud.setProgress(null, 0);
+      this.hud.setIcons(false, 'none', false);
+      return;
+    }
     if (!d) {
       this.hud.setRound(null, null);
       this.hud.setProgress(null, 0);

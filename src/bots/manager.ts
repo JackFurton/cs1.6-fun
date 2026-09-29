@@ -4,6 +4,7 @@ import type { Game } from '../game/game';
 import type { GameMode } from '../game/mode';
 import type { Player } from '../game/player';
 import { BombDefusal } from '../game/rules';
+import { AimTournament } from '../game/tournament';
 import { inZone, type Team, type Zone } from '../maps/types';
 import type { RadioCommand } from '../game/radio';
 import { Bot, type Task } from './bot';
@@ -301,7 +302,17 @@ export class BotManager {
       this.pendingRadio.splice(i, 1);
       if (r.p.alive) this.game.emit({ type: 'radio', player: r.p, text: r.text });
     }
-    if (this.mode instanceof Deathmatch) {
+    if (this.mode instanceof AimTournament) {
+      if (this.lastRound !== this.mode.state.roundSerial) {
+        this.lastRound = this.mode.state.roundSerial;
+        this.contacts = [];
+        this.pendingRadio = [];
+        for (const b of this.bots) {
+          b.onSpawn();
+          b.task = { kind: 'hunt', dest: null };
+        }
+      }
+    } else if (this.mode instanceof Deathmatch) {
       for (const b of this.bots) {
         if (!b.p.alive) continue;
         if (b.task.kind !== 'hunt') {

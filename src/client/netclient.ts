@@ -6,6 +6,7 @@ import { Grenade } from '../game/grenades';
 import type { GameMode } from '../game/mode';
 import { Player, WeaponState } from '../game/player';
 import { BombDefusal } from '../game/rules';
+import { AimTournament } from '../game/tournament';
 import type { UserCmd } from '../game/usercmd';
 import { WEAPONS, type WeaponId } from '../game/weapons';
 import type { Team } from '../maps/types';
@@ -57,7 +58,7 @@ export function connect(url: string): Promise<{ ws: WebSocket; info: ServerInfo 
       }
       if (!msg || typeof msg !== 'object') return;
       if (msg.t === 'info') {
-        if (!msg.info || typeof msg.info.map !== 'string' || !['defuse', 'dm'].includes(msg.info.mode)) {
+        if (!msg.info || typeof msg.info.map !== 'string' || !['defuse', 'dm', 'tournament'].includes(msg.info.mode)) {
           fail('The address did not send valid game server information');
           return;
         }
@@ -84,6 +85,8 @@ export class NetClient {
   /** Raw events, decoded when taken so they resolve against the latest player list. */
   private events: unknown[] = [];
   onWelcome: (local: Player) => void = () => {};
+  onRespawn: (local: Player) => void = () => {};
+  onFull: (reason: string) => void = () => {};
   onBuyResult: (err: string | null) => void = () => {};
   onChat: (from: Player | undefined, text: string) => void = () => {};
   onClose: () => void = () => {};
@@ -131,6 +134,9 @@ export class NetClient {
       case 'buyResult':
         this.onBuyResult(msg.err);
         break;
+      case 'full':
+        this.onFull(msg.reason);
+        break;
       case 'chat':
         this.onChat(this.byId.get(msg.from), msg.text);
         break;
@@ -162,6 +168,9 @@ export class NetClient {
   }
 
   private onSnapshot(s: Snapshot): void {
+    const newRound = !!s.tournament && this.mode instanceof AimTournament && this.mode.state.roundSerial !== s.tournament.roundSerial;
+    // Apply phase before prediction replay so freeze time uses the authoritative rules.
+    if (s.tournament && this.mode instanceof AimTournament) this.mode.state = s.tournament;
     this.snaps.push(s);
     if (this.snaps.length > 30) this.snaps.shift();
     // Snap forward if we drifted; otherwise nudge, so HUD timers don't stutter.
@@ -185,6 +194,12 @@ export class NetClient {
         this.boxes.set(p, boxBrush(new Vec3(), new Vec3(), 'player'));
       }
       applyPlayerState(p, ps);
+      if (newRound && ps.id === this.localId && ps.alive) {
+        this.history = [];
+        p.yaw = ps.yaw;
+        p.pitch = ps.pitch;
+        this.onRespawn(p);
+      }
       if (ps.id === this.localId) this.reconcile(p, ps);
       else {
         p.punchPitch = ps.punch[0];
@@ -241,7 +256,8 @@ export class NetClient {
 
   private predict(p: Player, cmd: UserCmd): void {
     this.game.mover.others = this.solidsExcept(p);
-    this.game.mover.move(p.move, cmd, p.maxSpeed(), TICK_DT);
+    const frozen = this.mode.canMove && !this.mode.canMove(p);
+    this.game.mover.move(p.move, frozen ? { ...cmd, forward: 0, side: 0, jump: false } : cmd, p.maxSpeed(), TICK_DT);
   }
 
   private solidsExcept(self: Player): Brush[] {
