@@ -40,12 +40,15 @@ try {
   await join(b, 'bob', 'CT');
   const id = await a.evaluate(() => window.app.local.id);
   const start = await a.evaluate(() => [window.app.local.origin.x, window.app.local.origin.z]);
+  // Only the front tab gets animation frames, and each page runs its game loop on them.
+  await a.bringToFront();
   await a.evaluate(() => (window.app.input.locked = true));
   await a.keyboard.down('w');
   await a.waitForTimeout(800);
   await a.keyboard.up('w');
   await a.waitForTimeout(600);
   const mine = await a.evaluate(() => [window.app.local.origin.x, window.app.local.origin.z, window.app.local.alive]);
+  await b.bringToFront();
   // Bob's view only moves when his page draws a frame, and CI's software GL draws a few a second,
   // so give his interpolation time to catch up instead of sampling at a fixed moment.
   await b
