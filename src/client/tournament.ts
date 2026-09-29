@@ -63,7 +63,7 @@ export class TournamentPanel {
         </button>`).join('')}</div>
         <div class="tourney-footer"><span>${humans}/16 players · ${16 - humans} bots<br><small>AK-47 + Desert Eagle + armor · first to 2 wins · 90s rounds</small></span>
         <button class="tourney-ready${ready ? ' ready' : ''}" data-ready="${!ready}">${ready ? 'Ready ✓ — click to cancel' : 'Ready up'}</button></div>
-        <p class="tourney-status">${s.phaseEnd ? `Everyone ready. Starting in ${seconds}s…` : 'Waiting for everyone to ready up. Invite your friend before starting.'}</p>
+        <p class="tourney-status"></p>
         <p class="tourney-notice">${performance.now() < this.noticeUntil ? escape(this.notice) : 'Teams lock when the tournament starts. The next duo plays as soon as a match finishes.'}</p>
       </div></div>`;
     } else {
@@ -84,5 +84,9 @@ export class TournamentPanel {
       this.el.innerHTML = html;
       this.last = html;
     }
+    // The countdown ticks every second; set it in place so the lobby buttons aren't rebuilt under the cursor.
+    const status = this.el.querySelector<HTMLElement>('.tourney-status');
+    const text = s.phaseEnd ? `Everyone ready. Starting in ${seconds}s…` : 'Waiting for everyone to ready up. Invite your friend before starting.';
+    if (status && status.textContent !== text) status.textContent = text;
   }
 }
