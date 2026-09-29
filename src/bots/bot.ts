@@ -21,12 +21,12 @@ function engageRange(p: Player): number {
 
 export type Task =
   | { kind: 'idle' }
-  /** Walk to a spot, then hold it looking at `look`. */
-  | { kind: 'hold'; spot: Vec3; look: Vec3 }
+  /** Walk to a spot, then hold it looking at `look` (until `until`, if set, then do `then`). */
+  | { kind: 'hold'; spot: Vec3; look: Vec3; until?: number; then?: Task }
   /** Wait at a spot outside a site until the team is ready, then do `then`. */
   | { kind: 'stage'; spot: Vec3; look: Vec3; then: Task }
-  /** Push along a waypoint to a destination. */
-  | { kind: 'go'; via: Vec3 | null; dest: Vec3; then?: Task }
+  /** Push along a waypoint to a destination; `quiet` walks the last stretch so nobody hears it arrive. */
+  | { kind: 'go'; via: Vec3 | null; dest: Vec3; then?: Task; quiet?: boolean }
   | { kind: 'plant'; spot: Vec3 }
   | { kind: 'defuse'; bomb: Vec3 }
   | { kind: 'fetch'; pos: Vec3 }
@@ -137,6 +137,8 @@ export class Bot {
       this.nextPerceive = this.time + 0.05;
     }
 
+    if (this.task.kind === 'hold' && this.task.until !== undefined && this.time >= this.task.until) this.task = this.task.then ?? { kind: 'hunt', dest: null };
+
     // Only fight what the current gun can realistically hit; otherwise keep playing the objective.
     const engaged = !!this.enemy && this.visible && this.enemy.alive && this.enemy.origin.distanceTo(p.origin) < engageRange(p);
     let moveDir: Vec3 | null = null;
@@ -180,6 +182,7 @@ export class Bot {
       }
       // Walk the last stretch into a hold quietly, like a player would.
       if (t.kind === 'hold' && moveDir && Math.hypot(t.spot.x - p.origin.x, t.spot.z - p.origin.z) < 250) c.walk = true;
+      if (t.kind === 'go' && t.quiet && moveDir && !t.via && Math.hypot(t.dest.x - p.origin.x, t.dest.z - p.origin.z) < 450) c.walk = true;
       this.maintainWeapon();
       const flash = this.friendlyFlash();
       if (flash) {
@@ -535,6 +538,16 @@ export class Bot {
         this.strafeUntil = this.time + 0.25 + this.rand() * 0.45;
       }
       c.side = this.strafeDir;
+    }
+    // A blind enemy is a free kill for whoever closes the distance: run in, then stop and shoot.
+    if (e.flashUntil - this.time > 0.8 && dist > 350 && dist < 1400 && w.def.id !== 'knife' && !(w.def.zoom && w.def.zoom.length > 1)) {
+      const to = e.origin.clone().sub(p.origin);
+      to.y = 0;
+      to.normalize();
+      this.stopping = false;
+      c.attack = false;
+      c.side = 0;
+      this.steer(to);
     }
     if (shooting && w.def.auto && dist < 900) {
       if (!this.crouching && w.shotsFired === 1) this.crouching = this.rand() < s.crouch;
