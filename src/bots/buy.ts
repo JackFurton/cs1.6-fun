@@ -16,10 +16,13 @@ export function botBuy(p: Player, mode: GameMode, opts: { pistolRound: boolean; 
     if (p.money >= 1000 && !(p.armor >= 100 && p.helmet)) buy('vesthelm');
     else if (p.money >= 650 && p.armor < 100) buy('vest');
   };
+  // Ts carry the execute utility (smokes and flashes); CTs mostly flashes for retakes.
   const nades = () => {
-    if (p.money >= 300 && r() < 0.6) buy('hegrenade');
-    if (p.money >= 200 && r() < 0.6) buy('flashbang');
-    if (p.money >= 300 && r() < 0.4) buy('smokegrenade');
+    const t = p.team === 'T';
+    if (p.money >= 300 && r() < (t ? 0.75 : 0.4)) buy('smokegrenade');
+    if (p.money >= 200 && r() < (t ? 0.85 : 0.7)) buy('flashbang');
+    if (p.money >= 200 && r() < (t ? 0.4 : 0.25)) buy('flashbang');
+    if (p.money >= 300 && r() < 0.5) buy('hegrenade');
   };
   const kit = () => {
     if (p.team === 'CT' && !p.defuser && p.money >= 200 && r() < 0.6) buy('defuser');
