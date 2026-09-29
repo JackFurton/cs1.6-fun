@@ -5,6 +5,7 @@ import type { BuyItem } from '../game/mode';
 import { Player, WeaponState } from '../game/player';
 import type { RadioCommand } from '../game/radio';
 import { BombDefusal } from '../game/rules';
+import { AimTournament, type TournamentState } from '../game/tournament';
 import type { UserCmd } from '../game/usercmd';
 import { WEAPONS, type Slot, type WeaponId } from '../game/weapons';
 import type { Team } from '../maps/types';
@@ -15,7 +16,7 @@ export const SNAPSHOT_HZ = 30;
 
 export interface ServerInfo {
   map: string;
-  mode: 'defuse' | 'dm';
+  mode: 'defuse' | 'dm' | 'tournament';
   difficulty: Difficulty;
 }
 
@@ -27,6 +28,9 @@ export type ClientMsg =
   | { t: 'buy'; item: BuyItem }
   | { t: 'radio'; cmd: RadioCommand }
   | { t: 'chat'; text: string }
+  | { t: 'tournament'; action: 'duo'; duo: number }
+  | { t: 'tournament'; action: 'ready'; ready: boolean }
+  | { t: 'tournament'; action: 'again' }
   | { t: 'team'; team: Team | 'auto'; model: number };
 
 export type ServerMsg =
@@ -111,6 +115,7 @@ export interface Snapshot {
   time: number;
   players: PlayerSnap[];
   rules: RulesSnap | null;
+  tournament: TournamentState | null;
   nuke: (Omit<NuclearStrike, 'pos'> & { pos: [number, number, number] }) | null;
   dropped: { id: WeaponId; pos: [number, number, number]; yaw: number }[];
   nades: { id: WeaponId; pos: [number, number, number]; stopped: boolean }[];
@@ -128,6 +133,7 @@ export function snapshot(g: Game, acks: Map<Player, number>): Snapshot {
   const rules = g.rules instanceof BombDefusal ? g.rules : null;
   return {
     time: g.time,
+    tournament: g.rules instanceof AimTournament ? structuredClone(g.rules.state) : null,
     nuke: g.nukes.strike ? { ...g.nukes.strike, pos: v3(g.nukes.strike.pos) } : null,
     players: g.players.map((p) => ({
       id: p.id,

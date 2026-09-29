@@ -23,3 +23,4 @@ jobs:
       - run: npm run build:server
       - run: node scripts/nukesmoke.mjs
       - run: node scripts/netsmoke.mjs
+      - run: node scripts/tournamentsmoke.mjs

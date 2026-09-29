@@ -41,7 +41,7 @@ test('a tunnel page connects back to its own secure server', () => {
   expect(() => serverUrl('ftp://example.com')).toThrow('server address');
 });
 
-test.each(['defuse', 'dm'])('%s server info completes the handshake and clears its timeout', async (mode) => {
+test.each(['defuse', 'dm', 'tournament'])('%s server info completes the handshake and clears its timeout', async (mode) => {
   const result = connect('ws://example.com:27015/');
   const ws = Socket.last;
   const info = { map: 'de_dust2', mode, difficulty: 'normal' };

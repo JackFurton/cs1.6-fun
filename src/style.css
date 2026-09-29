@@ -1,4 +1,45 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: Verdana, Tahoma, sans-serif; user-select: none; }
+.tournament { position: fixed; inset: 0; z-index: 20; pointer-events: none; color: #eee; font-size: 14px; }
+.tournament[hidden] { display: none; }
+.menu-notice { color: #ffca62; line-height: 1.5; border: 1px solid #94733c; padding: 12px; }
+.tourney-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 9, 8, .8); padding: 16px; }
+.tourney-overlay.interactive { pointer-events: auto; }
+.tourney-box { width: min(100%, 1040px); max-height: 100%; overflow: auto; box-sizing: border-box; background: #191e1a; border: 1px solid #626f55; padding: 26px; box-shadow: 0 20px 100px #0009; }
+.tourney-eyebrow { font-size: 11px; letter-spacing: 2px; color: #b5c797; margin-bottom: 8px; }
+.tourney-box h1 { margin: 0 0 12px; color: #ffca62; font-size: clamp(24px, 3vw, 36px); }
+.tourney-box p { color: #c6cbc2; line-height: 1.5; }
+.tourney-duos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0; }
+.tourney-duo { font: inherit; text-align: left; color: #eee; background: #282e27; border: 1px solid #626856; padding: 14px; cursor: pointer; min-width: 0; }
+.tourney-duo:hover:not(:disabled) { background: #3c4732; border-color: #b4c699; }
+.tourney-duo.selected { background: #35442b; border: 2px solid #ffca62; padding: 13px; }
+.tourney-duo:disabled { cursor: default; opacity: .65; }
+.tourney-duo > b { display: block; color: #ffca62; font-size: 12px; margin-bottom: 14px; }
+.tourney-member { display: flex; justify-content: space-between; gap: 6px; margin: 9px 0; overflow-wrap: anywhere; }
+.tourney-member.you { color: #ffda91; }
+.tourney-member small { color: #a8ba96; font-size: 9px; flex-shrink: 0; line-height: 18px; }
+.tourney-opponent { display: block; margin-top: 14px; font-size: 10px; color: #aeb6a5; }
+.tourney-footer { display: flex; justify-content: space-between; gap: 16px; align-items: center; line-height: 1.8; }
+.tourney-footer small { color: #abb6a0; font-size: 11px; }
+.tourney-ready { background: #d8ae50; color: #192115; border: 1px solid #ffdc85; padding: 14px 24px; font: bold 15px Verdana, sans-serif; cursor: pointer; }
+.tourney-ready:hover { background: #ffcf69; }
+.tourney-ready.ready { background: #516d3f; border-color: #9fbd85; color: white; }
+.tourney-status { color: #ffda91 !important; margin-bottom: 4px; }
+.tourney-notice { font-size: 11px; margin-bottom: 0; }
+.tourney-banner { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); padding: 12px 24px; background: #151b16e8; border: 1px solid #66734f; text-align: center; min-width: 350px; }
+.tourney-banner > b { display: block; font-size: 19px; color: #eee; }
+.tourney-banner strong { color: #ffca62; padding: 0 24px; font-size: 25px; }
+.tourney-banner > span, .tourney-banner > small { display: block; margin-top: 7px; font-size: 12px; }
+.tourney-banner > small { color: #bcc8af; font-size: 10px; }
+.tourney-bracket { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin: 18px 0; }
+.tourney-bracket section { display: flex; flex-direction: column; justify-content: space-around; gap: 10px; }
+.tourney-bracket h3 { color: #b9c8a7; text-transform: uppercase; letter-spacing: 1px; font-size: 11px; margin: 0; }
+.tourney-match { background: #252b23; border: 1px solid #4c5743; padding: 6px 10px; }
+.tourney-match.current { border-color: #d7ac52; }
+.tourney-match > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.tourney-match .winner { color: #ffd478; }
+.tourney-match .mine > span { font-weight: bold; }
+.tourney-match small { display: block; color: #a4b29a; font-size: 10px; margin-top: 3px; overflow-wrap: anywhere; }
+@media (max-width: 780px) { .tourney-duos { grid-template-columns: repeat(2, 1fr); } .tourney-box { padding: 18px; } .tourney-bracket { gap: 10px; } .tourney-footer { flex-wrap: wrap; } }
 #app { position: fixed; inset: 0; }
 canvas { display: block; }
 
